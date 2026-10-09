@@ -14,7 +14,7 @@ services:
       timeout: 5s
       retries: 10
   app:
-    build: .
+    image: ${NOTERA_IMAGE:-ghcr.io/skords83/notera:latest}
     restart: unless-stopped
     ports:
       - "127.0.0.1:${APP_PORT:-3000}:3000"

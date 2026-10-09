@@ -38,10 +38,29 @@ npm run dev:web
 ```sh
 cp .env.example .env
 # APP_ORIGIN und ein langes zufälliges Hex-Datenbankpasswort in .env eintragen.
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 
 docker compose exec app npm run user:add -- sven "Sven"
 docker compose exec app npm run user:add -- sandra "Sandra"
+```
+
+GitHub Actions baut und veröffentlicht das Image nach erfolgreichen Tests und einem Container-Starttest mit PostgreSQL. Der Server benötigt dadurch weder Node.js noch einen lokalen Build. Ein Update lädt mit `docker compose pull` das neue Image; `docker compose up -d` startet es. Vorher sichern.
+
+- Registry: `ghcr.io/skords83/notera`
+- `latest`: letzter erfolgreicher Build von `main`
+- `sha-<vollständige Commit-SHA>`: Build eines bestimmten Commits
+- `v*`: Versions-Tags werden unverändert als Image-Tag veröffentlicht
+- Plattform: zunächst `linux/amd64` (x86-64-Server)
+- Pull Requests prüfen Tests und Containerstart, veröffentlichen aber kein Image.
+- Manuell: GitHub → Actions → **Test and publish Docker image** → **Run workflow**, Branch `main`.
+
+Der Workflow nutzt das automatisch bereitgestellte `GITHUB_TOKEN`; zusätzliche Registry-Secrets sind nicht erforderlich. Ein neues GHCR-Paket kann zunächst privat sein, auch wenn das Repository öffentlich ist. Falls `docker compose pull` eine Anmeldung verlangt, unter GitHub → Profil → Packages → notera → Package settings die Sichtbarkeit bewusst auf Public setzen oder auf dem Server `docker login ghcr.io` mit einem Token mit `read:packages` verwenden. [GitHub-Dokumentation zur Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+
+Für einen ausdrücklich gewünschten lokalen Docker-Build bleibt ein Override verfügbar:
+
+```sh
+docker compose -f compose.yaml -f compose.build.yaml up -d --build
 ```
 
 Die API bleibt standardmäßig an `127.0.0.1:${APP_PORT:-3000}` gebunden. Die Datenbank veröffentlicht keinen Port. Den vorhandenen HTTPS-Reverse-Proxy auf die App richten; bei einem Proxy in einem anderen Container ein passendes gemeinsames Netzwerk konfigurieren. Domain und Proxy bleiben Bereitstellungseinstellungen. `APP_ORIGIN=https://deine-domain` setzen. HTTPS aktiviert `Secure`-Cookies. HTTP darf nicht als Produktionsbetrieb genutzt werden.
@@ -91,7 +110,7 @@ Die portablen JSON-Sicherungen sind für eine kleine persönliche Installation g
 
 1. Sicherung erstellen und Wiederherstellbarkeit prüfen.
 2. Release-/Migrationshinweise lesen; Quellcode und Lockfile gemeinsam aktualisieren.
-3. `npm ci`, `npm test`, `npm run build` ausführen, dann lokal neu starten bzw. `docker compose up -d --build`.
+3. `npm ci`, `npm test`, `npm run build` ausführen, dann lokal neu starten bzw. `docker compose pull && docker compose up -d`.
 4. Gesundheit, Anmeldung und Synchronisation prüfen.
 
 Migration `001_initial.sql` wird nur bei einer frischen Datenbank ausgeführt und in `schema_migrations` erfasst. Für spätere Schemaänderungen müssen neue nummerierte Migrationen und gesonderte Upgrade-Anweisungen ergänzt werden. Es gibt keine automatische destruktive Migration. Ein neuer Service Worker wartet, bis alte App-Tabs geschlossen sind; nach einem Update alle Tabs einmal schließen und neu öffnen.

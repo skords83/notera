@@ -1,0 +1,6 @@
+# Optional local build, instead of the published GHCR image:
+# docker compose -f compose.yaml -f compose.build.yaml up -d --build
+services:
+  app:
+    image: notera:local
+    build: .

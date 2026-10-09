@@ -1,4 +1,5 @@
 FROM node:24-bookworm-slim AS build
+LABEL org.opencontainers.image.source="https://github.com/skords83/notera"
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
