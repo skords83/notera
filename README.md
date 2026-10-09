@@ -2,7 +2,7 @@
 
 Selbst gehostete Aufgaben-App für zwei Personen. React/Vite-PWA, Fastify-API und PostgreSQL. Darkmode, optional Hell- und Systemmodus. Der Entwicklungsauftrag und die unveränderte Designreferenz liegen unter [`docs/reference/`](docs/reference/).
 
-**Stand: Stufe A implementiert, Abnahme noch nicht vollständig.** Automatisierte Domänen-, API- und Offline-Queue-Tests bestehen. Browser-/Android-Prüfungen und der Compose-Start sind in der Entwicklungsumgebung blockiert und noch offen. Stufe B wurde entsprechend der vorgeschriebenen Reihenfolge noch nicht begonnen. Details: [Prüfbericht](docs/STATUS.md).
+**Stand: Stufe A implementiert, Abnahme noch nicht vollständig.** Automatisierte Domänen-, API- und Offline-Queue-Tests bestehen. Browser-/Android-Prüfungen bleiben offen. Docker-Build, Compose-Start mit PostgreSQL und Kontopersistenz nach Containerneustart wurden inzwischen in GitHub Actions erfolgreich geprüft. Stufe B wurde entsprechend der vorgeschriebenen Reihenfolge noch nicht begonnen. Details: [Prüfbericht](docs/STATUS.md).
 
 ## Lokal starten
 

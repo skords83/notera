@@ -40,11 +40,19 @@ Produktionsdateien über Fastify Injection: `/`, Manifest, Service Worker, beide
 
 Die Paketinstallation meldete keine bekannten Schwachstellen. Die abschließende separate Prüfung `npm audit --omit=dev` konnte wegen `EAI_AGAIN registry.npmjs.org` nicht abgeschlossen werden. Sie ist **nicht als bestandener vollständiger Sicherheitscheck** zu werten.
 
+## Nachtrag: automatischer Docker-Build auf GitHub
+
+Der [Workflow-Lauf 37987150517](https://github.com/skords83/notera/actions/runs/37987150517) für Commit `ec94a0eb4b8680a0a62fa8d665cd24155c0a9b23` hat die automatisierten Tests sowie den Docker-Build einschließlich TypeScript/Vite erfolgreich abgeschlossen. Auf dem GitHub-Runner wurden App und PostgreSQL mit Docker Compose gestartet, HTTP-Endpunkte und die Bootstrap-CLI geprüft und nach Neustart beider Container die Existenz des angelegten Testkontos per SQL bestätigt. Die Testcontainer samt Testvolume wurden anschließend entfernt.
+
+Auch der anschließende Publish-Job war erfolgreich. Das Image wurde als `ghcr.io/skords83/notera:latest` sowie `ghcr.io/skords83/notera:sha-ec94a0eb4b8680a0a62fa8d665cd24155c0a9b23` für `linux/amd64` veröffentlicht.
+
+Das ergänzt die lokalen Tests um einen echten Containerlauf. Es ersetzt weder die Browser-/Android-Abnahme noch den noch ausstehenden Container-Backup-/Restore-Test. Die Standard-Compose-Datei verwendet jetzt das von GitHub veröffentlichte Image; `compose.build.yaml` erlaubt weiterhin einen lokalen Build. Der Workflow ist unter `.github/workflows/docker.yml` versioniert.
+
 ## Blockierte/noch offene Abnahme
 
 - Lokaler Webserver: Start versucht, `listen EPERM 127.0.0.1:3000`. Die Ausführungsumgebung untersagt lokale Sockets.
 - Chromium: Start versucht, `setsockopt: Operation not permitted`, Prozess beendet. Deshalb keine durchgeführte visuelle Desktop-/360px-/320px-Kontrolle, keine geprüften Screenshots, keine reale Tastatur-/Touch-Abnahme.
-- Docker ist hier nicht installiert. Compose-Start, PostgreSQL-Container, Containerneustart und Container-Backup/Restore nicht durchgeführt.
+- Docker ist lokal nicht installiert. Inzwischen wurden Docker-Build, Compose-Start mit PostgreSQL, Bootstrap-CLI und Kontopersistenz nach Containerneustart in GitHub Actions erfolgreich geprüft. Container-Backup/Restore und ein umfassender Datenvergleich nach Neustart bleiben offen.
 - Echter Abgleich zwischen PC und Android, installierte Android-PWA, Offline-App-Neustart sowie Bildschirmtastatur nicht geprüft.
 - Der vorbereitete `npm run test:browser`-Lauf wurde wegen dieser Umgebungssperren nicht vollständig ausgeführt. Er ist ein Startpunkt für echte Browserchecks, keine Behauptung bestandener Abnahme.
 - Keine produktive Veröffentlichung und keine Änderung an einem laufenden Server.
