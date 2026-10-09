@@ -14,7 +14,7 @@ Versionen wurden beim Projektbeginn aus dem Registry aufgelöst und im Lockfile 
 
 ## API
 
-Alle Antworten unter `/api` sind `no-store`. Alle schreibenden Browseranfragen verlangen exakt `Origin == APP_ORIGIN`. Das gilt auch für Login. SameSite-Strict-/HttpOnly-Sitzungscookies, bei HTTPS zusätzlich Secure. Zufällige Sitzungstoken werden nur gehasht serverseitig gespeichert, Laufzeit 30 Tage. Passwörter verwenden Node-scrypt mit zufälligem 128-Bit-Salt und 64-Byte-Ausgabe. Login hat ein IP-Limit; bei Reverse-Proxy-Betrieb wird absichtlich keinem frei mitgelieferten `X-Forwarded-For` vertraut. Damit teilen sich hinter einem Proxy alle Geräte dessen Limit von 10 Versuchen/15 Minuten; für diese Zweipersoneninstallation akzeptiert.
+Alle Antworten unter `/api` sind `no-store`. Alle schreibenden Browseranfragen verlangen exakt `Origin == APP_ORIGIN`. Das gilt auch für Login. SameSite-Strict-/HttpOnly-Sitzungscookies, bei HTTPS zusätzlich Secure. Zufällige Sitzungstoken werden nur gehasht serverseitig gespeichert, Laufzeit 30 Tage. Passwörter verwenden Node-scrypt mit zufälligem 128-Bit-Salt und 64-Byte-Ausgabe. Login hat ein Limit von 10 Versuchen/15 Minuten je ermittelter Client-IP. `TRUSTED_PROXIES` konfiguriert ausdrücklich vertrauenswürdige Proxy-IP-Adressen/CIDRs. Fastify wertet die Kette von der Socket-Gegenstelle bis zum ersten nicht vertrauenswürdigen Hop aus; frei gesetzte Header direkter Clients ändern den Schlüssel nicht. Ohne Konfiguration bleiben Forwarding-Header unberücksichtigt. [Traefik-Betrieb](TRAEFIK.md) beschreibt die nötige VPS-Einstellung.
 
 - `POST /api/login`: `{username,password}` → eigener Benutzer; setzt Cookie.
 - `POST /api/logout`: Sitzung löschen.
@@ -45,3 +45,9 @@ Die lokale Kopie liegt im Browserprofil und ist nicht zusätzlich anwendungsseit
 Die API protokolliert keine Request-Bodies, Passwörter oder Aufgaben. Serverfehler geben allgemeine Nachrichten zurück. Tokens liegen nicht in LocalStorage; dort liegt nur die Darstellungspräferenz.
 
 Die initiale SQL-Migration reserviert unabhängige Erinnerungs- und Push-Tabellen, bietet aber keinerlei Zustellfunktion. Stufe B erfordert zusätzlich Unteraufgaben mit Zyklenschutz, Tags, Gruppen, Listengestaltung, Sortierung/Filter, Wiederholungsserien und idempotente Jobs. Bibliothekswahl für Wiederholungen erfolgt erst bei dieser Implementierung. Keine handgeschriebene Wiederholungsarithmetik ist vorweggenommen.
+
+## Abgelehnte neue Listen
+
+Client und Server verwenden dieselbe getrimmte Listenname-Validierung (1–80 Zeichen). Das Formular zeigt Fehler bei erhaltenen Eingaben. Die Queue validiert neue Clientaufrufe zusätzlich, berücksichtigt aber auch bereits gespeicherte Anfragen älterer Clients: Eine nie bestätigte neue Liste ist kein Beweis für Rechteentzug. Ihre Ablehnung bleibt in der persistenten Queue samt Fehlermeldung erhalten. Die Oberfläche kann diese Anlegeanfrage mit neuem Idempotenzschlüssel korrigieren oder ausdrücklich zusammen mit ihren lokalen Folgeänderungen verwerfen. Abhängige Aufgaben/Präferenzen warten auf eine erfolgreiche Listenanlage.
+
+Bei tatsächlich entzogenen Listenrechten werden Snapshot und zugehörige Queue-Einträge weiterhin entfernt; auch die Elternliste rein lokaler Aufgaben wird dazu berücksichtigt. Servervalidierungen bleiben gegenüber manipulierten Requests maßgeblich. Es gibt keine Schemaänderung.

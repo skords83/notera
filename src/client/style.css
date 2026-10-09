@@ -248,6 +248,8 @@ main {
   padding: 24px 40px;
 }
 .topbar {
+  max-width: 1000px;
+  margin-inline: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -724,4 +726,19 @@ dialog .login {
   margin: 2px 0 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* A single calm focus treatment around quick entry, with a distinct keyboard ring. */
+.compose {
+  border: 1px solid transparent;
+}
+.compose:focus-within {
+  border-color: var(--line);
+}
+.compose:has(input:focus-visible) {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.compose input:focus-visible {
+  outline: none;
 }

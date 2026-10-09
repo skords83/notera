@@ -24,6 +24,7 @@ jobs:
       APP_ORIGIN: http://localhost:3000
       APP_PORT: '3000'
       NOTERA_IMAGE: notera:ci
+      POSTGRES_PASSWORD: ci-disposable-notera-password-2026
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -34,13 +35,22 @@ jobs:
         run: npm ci
       - name: Test API, persistence and offline synchronization
         run: npm test
+      - name: Build web app for browser tests
+        run: npm run build
+      - name: Install Chromium for disposable browser tests
+        run: npx playwright install --with-deps chromium
+      - name: Browser regression checks (desktop, 360px, 320px)
+        run: npm run test:browser
+      - name: Browser screenshots
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: browser-screenshots
+          path: test-results/*.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Build production image (includes TypeScript and Vite checks)
         run: docker build --tag notera:ci .
-      - name: Set disposable database password
-        run: |
-          password="$(openssl rand -hex 32)"
-          echo "::add-mask::$password"
-          echo "POSTGRES_PASSWORD=$password" >> "$GITHUB_ENV"
       - name: Start app and PostgreSQL
         run: docker compose up --detach --wait --wait-timeout 120
       - name: Check HTTP and bootstrap CLI
@@ -55,10 +65,10 @@ jobs:
           curl --fail --retry 10 --retry-delay 3 http://localhost:3000/api/health
           docker compose exec -T db psql -U notera -d notera -tAc "SELECT count(*) FROM users WHERE username='ci-user'" | grep -qx '1'
       - name: Container logs on failure
-        if: failure()
+        if: failure() && env.POSTGRES_PASSWORD != ''
         run: docker compose logs --no-color --tail 150
       - name: Remove disposable containers and database
-        if: always()
+        if: always() && env.POSTGRES_PASSWORD != ''
         run: docker compose down --volumes --remove-orphans
 
   publish:

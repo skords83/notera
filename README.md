@@ -65,6 +65,8 @@ docker compose -f compose.yaml -f compose.build.yaml up -d --build
 
 Die API bleibt standardmäßig an `127.0.0.1:${APP_PORT:-3000}` gebunden. Die Datenbank veröffentlicht keinen Port. Den vorhandenen HTTPS-Reverse-Proxy auf die App richten; bei einem Proxy in einem anderen Container ein passendes gemeinsames Netzwerk konfigurieren. Domain und Proxy bleiben Bereitstellungseinstellungen. `APP_ORIGIN=https://deine-domain` setzen. HTTPS aktiviert `Secure`-Cookies. HTTP darf nicht als Produktionsbetrieb genutzt werden.
 
+**Traefik und Anmeldelimit:** Beim späteren VPS-Update `TRUSTED_PROXIES` auf die tatsächliche Traefik-Absenderadresse bzw. eine eng begrenzte vertrauenswürdige Proxy-Kette setzen. Ohne Konfiguration werden Forwarding-Header weiterhin ignoriert. Details, Netzwerkbeispiele und Prüfschritte: [Traefik-Konfiguration](docs/TRAEFIK.md). Niemals pauschal `trustProxy: true` oder alle privaten Netze freigeben.
+
 Für `/api/events` Proxy-Pufferung deaktivieren und längere Read-Timeouts zulassen. Heartbeats erfolgen alle zwei Sekunden. Es werden nur Änderungscursor übertragen; Inhalte werden anschließend über die authentifizierte Sync-API abgerufen. Bei Verbindungsabbrüchen holt der Client beim nächsten Sync den vollständigen autorisierten Stand. Ohne SSE erfolgt zusätzlich alle 30 Sekunden ein Sync, solange die App sichtbar ist.
 
 App und Datenbank haben Healthchecks. Das Volume `postgres` enthält die Daten. Keine `docker compose down -v`-Befehle verwenden, wenn Daten erhalten bleiben sollen. Die stündliche Papierkorbbereinigung läuft im App-Prozess; Stufe A braucht keinen separaten Worker. Ein dauerhafter Push-Scheduler gehört zur noch ausstehenden Stufe B.
@@ -137,6 +139,8 @@ npm run build
 npm run test:browser
 ```
 
-`CHROMIUM_PATH` kann den Browserpfad überschreiben. Browserchecks benutzen temporäre Konten/Datenbanken, Port 3217 und schreiben Desktop-/360px-/320px-Aufnahmen für Hell/Dunkel nach `test-results/`. Sie ersetzen weder die Sichtprüfung dieser Aufnahmen noch den Abgleich mit einem echten Android-Gerät.
+Vor dem ersten Browserlauf `npx playwright install --with-deps chromium` ausführen (unter Linux gegebenenfalls Systemrechte für Browserbibliotheken nötig). Standardmäßig wird der zu Playwright passende Chromium verwendet; `CHROMIUM_PATH` kann den Browserpfad überschreiben. Browserchecks benutzen temporäre Konten/Datenbanken, Port 3217 und schreiben Desktop-/360px-/320px-Aufnahmen für Hell/Dunkel nach `test-results/`. Sie ersetzen weder die Sichtprüfung dieser Aufnahmen noch den Abgleich mit einem echten Android-Gerät.
 
 Weitere technische Entscheidungen und API-Verhalten: [Architektur](docs/ARCHITECTURE.md).
+
+Der bestehende GitHub-Workflow führt auch Browser-Regressionstests mit temporären Testkonten aus und stellt die Aufnahmen als `browser-screenshots`-Artefakt bereit. Für PRs laufen Tests und Container-Build; der Veröffentlichungsjob bleibt gesperrt.
