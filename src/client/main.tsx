@@ -192,7 +192,24 @@ function App() {
   const target = list || inbox;
   const heading = list?.name || view;
   const chosen = data.tasks.find((t) => t.id === selected);
-  const managed = data.lists.find((l) => l.id === manage);
+  const managed = data.lists.find((l) => l.id === manage) || (() => {
+    const rejected = store
+      .getState()
+      .queue.find(
+        (q) => q.entity === "list" && q.id === manage && q.version === 0 && q.error,
+      );
+    if (!rejected) return undefined;
+    return {
+      id: rejected.id,
+      name: typeof rejected.patch.name === "string" ? rejected.patch.name : "",
+      ownerId: user.id,
+      inbox: false,
+      version: 0,
+      members: Array.isArray(rejected.patch.members)
+        ? rejected.patch.members.filter((id): id is string => typeof id === "string")
+        : [user.id],
+    } as TaskList;
+  })();
   const syncStatus = store.status();
   const tasks = data.tasks
     .filter((t) => {
