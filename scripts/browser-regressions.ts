@@ -8,7 +8,11 @@ export async function browserRegressions(page: Page, context: BrowserContext) {
       name: "Listen öffnen",
       exact: true,
     });
-    if (await toggle.isVisible()) await toggle.click();
+    if (
+      (await toggle.isVisible()) &&
+      (await page.locator("aside.sidebar.visible").count()) === 0
+    )
+      await toggle.click();
   }
   async function createList(name: string) {
     await openLists();
@@ -134,13 +138,13 @@ export async function browserRegressions(page: Page, context: BrowserContext) {
   await page
     .getByRole("button", { name: /^Fokus und Rückgängig Korrigierte Liste/ })
     .click();
-  await dialog.getByLabel("Fälligkeit", { exact: true }).selectOption("date");
+  await dialog.getByLabel("Fälligkeit").selectOption("date");
   await dialog.getByLabel("Datum", { exact: true }).fill("2026-03-29");
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   await synced();
   await expect(page.locator(".task-content")).toContainText("29. März 2026");
   await page.locator(".task-content").click();
-  await dialog.getByLabel("Fälligkeit", { exact: true }).selectOption("time");
+  await dialog.getByLabel("Fälligkeit").selectOption("time");
   await dialog
     .getByLabel("Lokale Uhrzeit", { exact: true })
     .fill("2026-07-01T00:15");
