@@ -34,6 +34,20 @@ jobs:
         run: npm ci
       - name: Test API, persistence and offline synchronization
         run: npm test
+      - name: Build web app for browser tests
+        run: npm run build
+      - name: Install Chromium for disposable browser tests
+        run: npx playwright install --with-deps chromium
+      - name: Browser regression checks (desktop, 360px, 320px)
+        run: npm run test:browser
+      - name: Browser screenshots
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: browser-screenshots
+          path: test-results/*.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Build production image (includes TypeScript and Vite checks)
         run: docker build --tag notera:ci .
       - name: Set disposable database password

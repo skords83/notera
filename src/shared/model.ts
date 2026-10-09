@@ -2,6 +2,23 @@ import { z } from "zod";
 import { Temporal } from "@js-temporal/polyfill";
 export const TITLE_MAX = 240;
 export const uuid = z.string().uuid();
+export const LIST_NAME_MAX = 80;
+export const listName = z
+  .string()
+  .trim()
+  .min(
+    1,
+    "Bitte gib einen Listennamen ein, der nicht nur aus Leerzeichen besteht.",
+  )
+  .max(LIST_NAME_MAX, "Der Listenname darf höchstens 80 Zeichen lang sein.");
+export const listPatch = z
+  .object({
+    name: listName,
+    members: z.array(uuid).max(20),
+    deleted: z.boolean(),
+  })
+  .partial()
+  .strict();
 export const day = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)

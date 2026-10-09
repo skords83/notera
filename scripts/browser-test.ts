@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import { Database } from "../src/server/db";
 import { createUser } from "../src/server/auth";
 import { makeApp } from "../src/server/app";
+import { browserRegressions } from "./browser-regressions";
 const dir = await mkdtemp(tmpdir() + "/notera-browser-");
 process.env.DATA_DIR = dir + "/db";
 delete process.env.DATABASE_URL;
@@ -20,7 +21,7 @@ let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 try {
   await app.listen({ host: "127.0.0.1", port: 3217 });
   browser = await chromium.launch({
-    executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
+    executablePath: process.env.CHROMIUM_PATH || chromium.executablePath(),
     headless: true,
   });
   await mkdir("test-results", { recursive: true });
@@ -141,10 +142,21 @@ try {
     }
     await page.setViewportSize({ width: 1360, height: 900 });
   }
+  await browserRegressions(page, a);
   expect(errors).toEqual([]);
   console.log(
     "Browserchecks bestanden: private/geteilte Listen, zwei Browserkonten, Reload, Offline-Reload, Abgleich, 320/360/Desktop ohne Überbreite. Screenshots in test-results/. Sichtprüfung und echte Android-Abnahme separat.",
   );
+} catch (error) {
+  await mkdir("test-results", { recursive: true });
+  for (const [index, page] of (
+    browser?.contexts().flatMap((c) => c.pages()) || []
+  ).entries()) {
+    await page
+      .screenshot({ path: `test-results/failure-${index}.png`, fullPage: true })
+      .catch(() => {});
+  }
+  throw error;
 } finally {
   await browser?.close();
   await app.close();

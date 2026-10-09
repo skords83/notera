@@ -1,4 +1,5 @@
 import { openDB } from "idb";
+import { listPatch, listName } from "../shared/model";
 import type {
   Mutation,
   Snapshot,
@@ -155,7 +156,7 @@ export async function logout() {
 export function projected(): Snapshot {
   const result = structuredClone(state.snapshot);
   for (const m of state.queue) {
-    if (m.status === 403) continue;
+    if (m.status === 403 && !(m.entity === "list" && m.version === 0)) continue;
     if (m.entity === "task") {
       let t = result.tasks.find((t) => t.id === m.id);
       if (!t) {
@@ -214,6 +215,11 @@ export async function enqueue(
   version?: number,
 ) {
   if (!state.user) throw new Error("Bitte anmelden.");
+  if (entity === "list") {
+    const parsed = listPatch.safeParse(patch);
+    if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+    patch = parsed.data;
+  }
   const accountId = state.user.id;
   const snap = projected();
   const v =
@@ -268,12 +274,26 @@ async function pull() {
   await update((s) => {
     if (snap.userId !== s.user?.id) return s;
     const allowed = new Set(snap.lists.map((l) => l.id));
+    const previouslyKnown = new Set(s.snapshot.lists.map((l) => l.id));
     const locallyCreatedLists = new Set(
       s.queue
-        .filter((m) => m.entity === "list" && m.version === 0 && !m.error)
+        .filter(
+          (m) =>
+            m.entity === "list" &&
+            m.version === 0 &&
+            !previouslyKnown.has(m.id) &&
+            !(Number(m.base?.version) > 0),
+        )
         .map((m) => m.id),
     );
     const oldTasks = new Map(s.snapshot.tasks.map((t) => [t.id, t]));
+    // Include local task ancestry so dependent edits/preferences are pruned on real revocation.
+    for (const m of s.queue) {
+      if (m.entity === "task" && !oldTasks.has(m.id)) {
+        const listId = m.base?.listId || m.patch.listId;
+        if (typeof listId === "string") oldTasks.set(m.id, { listId } as Task);
+      }
+    }
     let revoked = 0;
     s.queue = s.queue.filter((m) => {
       const list =
@@ -322,6 +342,15 @@ export async function sync() {
           blocked.add(obj);
           continue;
         }
+        const pendingList = state.queue.find(
+          (q) =>
+            q.entity === "list" &&
+            q.version === 0 &&
+            (q.id === m.patch.listId ||
+              q.id === m.base?.listId ||
+              q.id === projected().tasks.find((t) => t.id === m.id)?.listId),
+        );
+        if (m.entity !== "list" && pendingList) continue;
         try {
           const { error, detail, status, base, ...payload } = m;
           const result = await api("/mutations", payload);
@@ -393,7 +422,11 @@ export async function sync() {
       }
       await pull();
       syncStatus = state.queue.some((q) => q.error)
-        ? "Konflikt"
+        ? state.queue.some(
+            (q) => q.error && (q.status === 409 || q.status === 410),
+          )
+          ? "Konflikt"
+          : "Fehler"
         : state.queue.length
           ? "Änderungen ausstehend"
           : "Synchronisiert";
@@ -423,7 +456,57 @@ export async function sync() {
   return running;
 }
 export async function discard(key: string) {
-  await update((s) => ({ ...s, queue: s.queue.filter((m) => m.key !== key) }));
+  await update((s) => {
+    const rejected = s.queue.find((m) => m.key === key);
+    if (
+      rejected?.entity === "list" &&
+      rejected.version === 0 &&
+      !s.snapshot.lists.some((l) => l.id === rejected.id)
+    ) {
+      // Explicitly discarding a never-created list also discards its dependent local changes.
+      const tasks = new Set(
+        s.queue
+          .filter(
+            (m) =>
+              m.entity === "task" &&
+              (m.patch.listId === rejected.id ||
+                m.base?.listId === rejected.id),
+          )
+          .map((m) => m.id),
+      );
+      s.queue = s.queue.filter((m) => m.id !== rejected.id && !tasks.has(m.id));
+    } else s.queue = s.queue.filter((m) => m.key !== key);
+    return s;
+  });
+  await sync();
+}
+export async function correctNewList(
+  key: string,
+  patch: Record<string, unknown>,
+) {
+  const parsed = listPatch.safeParse(patch);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  const name = listName.safeParse(parsed.data.name);
+  if (!name.success)
+    throw new Error("Bitte gib einen gültigen Listennamen ein.");
+  await update((s) => {
+    const rejected = s.queue.find((m) => m.key === key);
+    if (
+      !rejected ||
+      rejected.entity !== "list" ||
+      rejected.version !== 0 ||
+      !rejected.error
+    )
+      throw new Error(
+        "Diese Änderung wurde bereits bearbeitet. Bitte die Liste erneut öffnen.",
+      );
+    rejected.patch = { ...rejected.patch, ...parsed.data, name: name.data };
+    rejected.key = crypto.randomUUID();
+    delete rejected.error;
+    delete rejected.status;
+    delete rejected.detail;
+    return s;
+  });
   await sync();
 }
 export async function resolveConflict(key: string, restore = false) {

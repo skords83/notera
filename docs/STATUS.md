@@ -1,3 +1,35 @@
+# Aktuelle Korrekturen – 10. Oktober 2026
+
+Basis: `main` bei `bbdb1464cbd17221afa7e308433a95731658650f`. Die lokalen Quelldateien wurden vor Änderungen anhand aller Git-Blob-Prüfsummen mit dem aktuellen GitHub-Baum verglichen; keine Abweichung. Arbeitsbranch: `fix/proxy-login-list-validation-ui`. Kein Merge, keine Änderung produktiver Daten oder Zugangsdaten und kein produktiver Rollout.
+
+## Fehlernachweis und Änderungen
+
+Die Regressionstests wurden zunächst gegen den unveränderten Code ausgeführt und schlugen wie erwartet fehl: Client B hinter demselben Proxy erhielt nach Client A ebenfalls 429 statt 401; eine serverseitig abgelehnte neue Liste verschwand aus der Queue (0 statt 1 Eintrag). Mit den Korrekturen bestehen beide Tests.
+
+- Explizites `TRUSTED_PROXIES` als IP-/CIDR-Liste; sichere Voreinstellung ohne Header-Vertrauen. Das Login-Limit bleibt 10/15 Minuten. Tests prüfen getrennte Clients, direkte Header-Manipulation, mehrstufige Ketten, IPv4-gemappte Adressen und ungültige Konfiguration.
+- Gemeinsame deutsche Listenname-Validierung vor Einreihung und auf dem Server. Abgelehnte Anlegeanfragen bleiben über Sync/Neuladen erhalten und sind korrigierbar oder ausdrücklich verwerfbar. Abhängige Änderungen warten. Echter Rechteentzug entfernt weiterhin Cache und zugehörige Queue-Einträge.
+
+| Vorher | Nachher | Zweck |
+| --- | --- | --- |
+| „1 Aufgaben“, unvollständige Zähler in Sonderansichten | Singular/Plural einschließlich Erledigt und Papierkorb | Verständliche Anzahl |
+| Fokusrahmen direkt um das schmale Eingabefeld | Ein ruhiger Außenrahmen um die Schnelleingabe bei Tastaturfokus | Sichtbarer Fokus ohne doppelte Umrandung |
+| Rückgängig blieb unbegrenzt stehen | Acht Sekunden; neuer Vorgang setzt Timer zurück; Hover, Fokus und verborgener Tab pausieren | Bedienbare, begrenzte Rückmeldung |
+| Statuszeile war auf breiten Desktops anders ausgerichtet | Gleiche 1000px-Spalte wie Überschrift, Eingabe und Aufgabenbereich | Konsistente Ausrichtung |
+| ISO-Datum/-Uhrzeit | Deutsches Kalenderdatum bzw. Uhrzeit in gespeicherter Zeitzone mit Zonenangabe | Kein Tagesversatz reiner Datumswerte |
+
+## Prüfstand dieser Änderung
+
+- `npm test`: lokal bestanden (vier Testdateien, insgesamt 17 Testfälle: 8 Domäne/API, 1 Offline-Integration, 5 Proxy, 3 Validierung/Anzeige).
+- `npm run build`: lokal bestanden, einschließlich TypeScript. Bestehende Vite-Bundlegrößenwarnung bleibt; keine neue Abhängigkeit.
+- Offline-Integration: ungültige Namen; gültiges Trimmen; persistierte ungültige Altanfrage; serverseitig abgelehnte gültige Namen; Korrektur inklusive abhängiger Aufgaben; bewusstes Verwerfen; offline anlegen, Client neu laden und online synchronisieren; tatsächlicher Rechteentzug.
+- Lokaler Browserstart erneut versucht, durch `listen EPERM 127.0.0.1:3217` blockiert. Keine lokale visuelle Prüfung behauptet.
+- Im bestehenden GitHub-Workflow sind zusätzliche Browser-Regressionsprüfungen mit temporären Konten/Datenbank und Screenshots für Desktop/360/320 eingerichtet. Ergebnis des PR-Laufs wird nachgetragen.
+- Keine eigene Android-, Produktions- oder VPS-Prüfung. Die vom Nutzer gemeldete funktionierende Anmeldung/Aufgabenanlage/PC-Android-Synchronisation ist ein Nutzerbericht, kein hier durchgeführter Test.
+
+Beim späteren VPS-Update sind die konkrete vertrauenswürdige Traefik-Adresse und die Environment-Weitergabe zu setzen; siehe [TRAEFIK.md](TRAEFIK.md). Keine Migration. Keine Stufe-B-Funktion begonnen.
+
+---
+
 # Entwicklungs- und Prüfbericht
 
 Stand: 9. Oktober 2026. **Der vollständige Entwicklungsauftrag ist noch nicht abgeschlossen.** Stufe A ist implementiert und automatisiert geprüft, aber noch nicht vollständig abgenommen. Stufe B bleibt entsprechend der ausdrücklich vorgegebenen Abnahmereihenfolge offen.

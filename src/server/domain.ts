@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
 import {
   mutationSchema,
   taskPatch,
   prefPatch,
-  uuid,
+  listPatch,
   type Mutation,
   type Task,
 } from "../shared/model";
@@ -69,14 +68,6 @@ function checkMerge(
       version: row.version,
     });
 }
-const listPatch = z
-  .object({
-    name: z.string().trim().min(1).max(80),
-    members: z.array(uuid).max(20),
-    deleted: z.boolean(),
-  })
-  .partial()
-  .strict();
 export async function mutate(db: Database, user: string, input: unknown) {
   const m = mutationSchema.parse(input);
   const digest = createHash("sha256").update(JSON.stringify(m)).digest("hex");

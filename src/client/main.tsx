@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, type FormEvent } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type FormEvent,
+} from "react";
 import { createRoot } from "react-dom/client";
 import {
   TrayIcon,
@@ -23,12 +29,20 @@ import {
 import {
   TITLE_MAX,
   taskPatch,
+  listName,
+  LIST_NAME_MAX,
   today,
   todaySection,
   type Task,
   type List as TaskList,
 } from "../shared/model";
 import * as store from "./store";
+import {
+  formatDue,
+  formatCalendarDate,
+  taskCount,
+} from "../shared/presentation";
+import { UndoToast } from "./UndoToast";
 import "./style.css";
 const views = [
   ["Eingang", TrayIcon],
@@ -154,6 +168,7 @@ function App() {
   const [manage, setManage] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [undo, setUndo] = useState<{ id: string; done: boolean } | null>(null);
+  const dismissUndo = useCallback(() => setUndo(null), []);
   const [theme, setTheme] = useState(
     localStorage.getItem("notera-theme") || "dark",
   );
@@ -428,18 +443,11 @@ function App() {
               Änderungen prüfen · {
                 state.queue.filter((q) => q.error).length
               }{" "}
-              Konflikt(e)
+              offen
             </button>
           )}
           <div className="section-title">
-            <span>
-              {tasks.length}{" "}
-              {view === "Papierkorb"
-                ? "im Papierkorb"
-                : view === "Erledigt"
-                  ? "erledigt"
-                  : "Aufgaben"}
-            </span>
+            <span>{taskCount(tasks.length, view)}</span>
             {!["Erledigt", "Papierkorb"].includes(view) && (
               <label className="inline">
                 <input
@@ -501,13 +509,7 @@ function App() {
                       <small>
                         {[
                           data.lists.find((l) => l.id === t.listId)?.name,
-                          t.due
-                            ? t.due.kind === "date"
-                              ? t.due.date
-                              : t.due.local.replace("T", " ") +
-                                " · " +
-                                t.due.timezone
-                            : null,
+                          formatDue(t.due),
                           t.assignee
                             ? data.users.find((u) => u.id === t.assignee)?.name
                             : null,
@@ -580,25 +582,16 @@ function App() {
         </div>
       </main>
       {undo && (
-        <div className="toast" role="status">
-          <span>{undo.done ? "Wieder geöffnet" : "Erledigt"}</span>
-          <button
-            onClick={() =>
-              void act(async () => {
-                await store.enqueue("task", undo.id, { done: undo.done });
-                setUndo(null);
-              })
-            }
-          >
-            Rückgängig
-          </button>
-          <button
-            aria-label="Rückmeldung schließen"
-            onClick={() => setUndo(null)}
-          >
-            <XIcon />
-          </button>
-        </div>
+        <UndoToast
+          undo={undo}
+          onDismiss={dismissUndo}
+          onUndo={() =>
+            void act(async () => {
+              await store.enqueue("task", undo.id, { done: undo.done });
+              setUndo(null);
+            })
+          }
+        />
       )}
       {chosen && (
         <Details
@@ -680,30 +673,57 @@ function App() {
                   }
                 />
                 <div className="actions">
-                  <button onClick={() => void act(() => store.discard(q.key))}>
-                    Serverfassung behalten
-                  </button>
                   <button
                     onClick={() =>
                       void act(async () => {
-                        const deleted = state.snapshot.tasks.find(
-                          (t) => t.id === q.id,
-                        )?.deleted;
                         if (
-                          deleted &&
+                          q.entity === "list" &&
+                          q.version === 0 &&
                           !confirm(
-                            "Diese Aufgabe wurde gelöscht. Mit deiner Änderung ausdrücklich wiederherstellen?",
+                            "Diese neue Liste und ihre noch ausstehenden Aufgabenänderungen verwerfen?",
                           )
                         )
                           return;
-                        await store.resolveConflict(q.key, !!deleted);
+                        await store.discard(q.key);
                       })
                     }
                   >
-                    {state.snapshot.tasks.find((t) => t.id === q.id)?.deleted
-                      ? "Wiederherstellen und Änderung anwenden"
-                      : "Meine Änderung anwenden"}
+                    {q.entity === "list" && q.version === 0
+                      ? "Neue Liste verwerfen"
+                      : "Serverfassung behalten"}
                   </button>
+                  {q.entity === "list" && q.version === 0 ? (
+                    <button
+                      onClick={() => {
+                        setManage(q.id);
+                        setModal(null);
+                      }}
+                    >
+                      Liste korrigieren
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() =>
+                        void act(async () => {
+                          const deleted = state.snapshot.tasks.find(
+                            (t) => t.id === q.id,
+                          )?.deleted;
+                          if (
+                            deleted &&
+                            !confirm(
+                              "Diese Aufgabe wurde gelöscht. Mit deiner Änderung ausdrücklich wiederherstellen?",
+                            )
+                          )
+                            return;
+                          await store.resolveConflict(q.key, !!deleted);
+                        })
+                      }
+                    >
+                      {state.snapshot.tasks.find((t) => t.id === q.id)?.deleted
+                        ? "Wiederherstellen und Änderung anwenden"
+                        : "Meine Änderung anwenden"}
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -752,14 +772,10 @@ function ConflictValues({
       return v
         .map((id) => data.users.find((u) => u.id === id)?.name || "Unbekannt")
         .join(", ");
-    if (key === "due" && typeof v === "object") {
-      const d = v as Task["due"];
-      return d?.kind === "date"
-        ? d.date
-        : d?.kind === "time"
-          ? d.local.replace("T", " ") + " · " + d.timezone
-          : "—";
-    }
+    if (key === "due" && typeof v === "object")
+      return formatDue(v as Task["due"]) || "—";
+    if (["today", "hideOverdue"].includes(key) && typeof v === "string")
+      return formatCalendarDate(v);
     return Array.isArray(v) ? v.join("\n") : String(v);
   }
   return (
@@ -780,14 +796,27 @@ function ListForm({ list, onClose }: { list?: TaskList; onClose: () => void }) {
   const user = store.getState().user!;
   const [name, setName] = useState(list?.name || "");
   const [members, setMembers] = useState<string[]>(list?.members || [user.id]);
-  const [error, setError] = useState("");
+  const rejected = store
+    .getState()
+    .queue.find(
+      (q) =>
+        q.entity === "list" && q.id === list?.id && q.version === 0 && q.error,
+    );
+  const [error, setError] = useState(rejected?.error || "");
+  const [nameInvalid, setNameInvalid] = useState(false);
   async function submit(e: FormEvent) {
     e.preventDefault();
     try {
-      await store.enqueue("list", list?.id || crypto.randomUUID(), {
-        name: name.trim(),
-        members,
-      });
+      const parsed = listName.safeParse(name);
+      if (!parsed.success) {
+        setNameInvalid(true);
+        setError(parsed.error.issues[0].message);
+        return;
+      }
+      setNameInvalid(false);
+      const patch = { name: parsed.data, members };
+      if (rejected) await store.correctNewList(rejected.key, patch);
+      else await store.enqueue("list", list?.id || crypto.randomUUID(), patch);
       onClose();
     } catch (e) {
       setError((e as Error).message);
@@ -801,7 +830,9 @@ function ListForm({ list, onClose }: { list?: TaskList; onClose: () => void }) {
           <input
             autoFocus
             required
-            maxLength={80}
+            maxLength={LIST_NAME_MAX}
+            aria-invalid={nameInvalid || undefined}
+            aria-describedby={error ? "list-error" : undefined}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
@@ -832,7 +863,7 @@ function ListForm({ list, onClose }: { list?: TaskList; onClose: () => void }) {
           bearbeiten. Dein Eingang bleibt privat.
         </p>
         {error && (
-          <p role="alert" className="error">
+          <p id="list-error" role="alert" className="error">
             {error}
           </p>
         )}
@@ -840,7 +871,7 @@ function ListForm({ list, onClose }: { list?: TaskList; onClose: () => void }) {
           <button className="primary">
             {list ? "Änderungen speichern" : "Liste anlegen"}
           </button>
-          {list && (
+          {list && !rejected && (
             <button
               type="button"
               className="danger"

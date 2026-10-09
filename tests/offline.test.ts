@@ -1,4 +1,5 @@
 import "fake-indexeddb/auto";
+import { openDB } from "idb";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -206,6 +207,110 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
       "Remote notes",
     );
     await store.discard(store.getState().queue[0].key);
+    // Client validation retains the form's responsibility: no invalid mutation is enqueued.
+    online = false;
+    for (const name of ["   ", "\t \n", "x".repeat(81)])
+      await assert.rejects(
+        store.enqueue("list", randomUUID(), { name }),
+        /Listenname/,
+      );
+    assert.equal(store.getState().queue.length, 0);
+    // A persisted request from an older client still reaches the server and must not disappear.
+    const rejectedList = randomUUID(),
+      waitingTask = randomUUID();
+    const storage = await openDB("notera-v1", 1);
+    const saved = await storage.get("state", "active");
+    saved.queue.push({
+      entity: "list",
+      id: rejectedList,
+      version: 0,
+      key: randomUUID(),
+      device: saved.device,
+      patch: { name: "   " },
+      base: {},
+    });
+    await storage.put("state", saved, "active");
+    storage.close();
+    store = await load("legacy-invalid-list");
+    await store.init();
+    await store.enqueue("task", waitingTask, {
+      title: "Gedanke in neuer Liste",
+      listId: rejectedList,
+    });
+    await store.enqueue("preference", waitingTask, { starred: true });
+    online = true;
+    await store.sync();
+    assert.equal(
+      store.getState().queue.length,
+      3,
+      "server rejection and dependent tasks must remain",
+    );
+    assert.match(store.getState().queue[0].error!, /Leerzeichen/);
+    assert.equal(store.status(), "Fehler");
+    await store.sync();
+    assert.equal(store.getState().queue.length, 3);
+    store = await load("rejected-list-reloaded");
+    await store.init();
+    assert.equal(
+      store.getState().queue.length,
+      3,
+      "rejection must survive reload",
+    );
+    await store.correctNewList(store.getState().queue[0].key, {
+      name: "  Korrigierte Liste  ",
+    });
+    assert.equal(store.getState().queue.length, 0);
+    assert.equal(
+      store.projected().lists.find((l) => l.id === rejectedList)?.name,
+      "Korrigierte Liste",
+    );
+    assert.equal(
+      store.projected().tasks.find((t) => t.id === waitingTask)?.listId,
+      rejectedList,
+    );
+    assert.equal(store.projected().preferences[waitingTask]?.starred, true);
+    // Normal offline list creation is trimmed, reloadable and synchronized exactly once.
+    online = false;
+    const offlineList = randomUUID();
+    await store.enqueue("list", offlineList, {
+      name: "  Offline-Liste  ",
+      members: [other],
+    });
+    assert.equal(store.getState().queue[0].patch.name, "Offline-Liste");
+    store = await load("offline-list-reload");
+    await store.init();
+    online = true;
+    await store.sync();
+    await store.sync();
+    assert.equal(
+      store.projected().lists.filter((l) => l.id === offlineList).length,
+      1,
+    );
+    assert.equal(store.getState().queue.length, 0);
+    assert.ok(
+      (await snapshot(db, other, 0, randomUUID())).lists.some(
+        (l) => l.id === offlineList,
+      ),
+    );
+    // A valid local name can still be rejected for other server validation reasons.
+    online = false;
+    const denied = randomUUID();
+    await store.enqueue("list", denied, {
+      name: "Server lehnt ab",
+      members: [randomUUID()],
+    });
+    const dependent = randomUUID();
+    await store.enqueue("task", dependent, {
+      title: "Abhängig",
+      listId: denied,
+    });
+    online = true;
+    await store.sync();
+    assert.equal(store.getState().queue.length, 2);
+    assert.equal(store.status(), "Fehler");
+    await store.discard(store.getState().queue[0].key);
+    assert.equal(store.getState().queue.length, 0);
+    assert.ok(!store.projected().lists.some((l) => l.id === denied));
     // Shared list is owned by Sandra. Revocation must purge both cache and pending access.
     const list = randomUUID(),
       shared = randomUUID();
@@ -228,6 +333,13 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
     await store.sync();
     online = false;
     await store.enqueue("task", shared, { notes: "queued" });
+    await store.enqueue("list", list, { name: "Kein Besitzrecht" });
+    const privatePending = randomUUID();
+    await store.enqueue("task", privatePending, {
+      title: "Auch lokal entfernen",
+      listId: list,
+    });
+    await store.enqueue("preference", privatePending, { starred: true });
     await mutate(db, other, {
       key: randomUUID(),
       device: randomUUID(),

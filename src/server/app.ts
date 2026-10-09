@@ -10,6 +10,7 @@ import { z, ZodError } from "zod";
 import { Database, one } from "./db";
 import { tokenHash, verifyPassword, hashPassword } from "./auth";
 import { mutate, snapshot, DomainError } from "./domain";
+import { trustedProxyAddresses } from "./proxy";
 import { uuid } from "../shared/model";
 declare module "fastify" {
   interface FastifyRequest {
@@ -21,12 +22,13 @@ export async function makeApp(
   {
     origin = process.env.APP_ORIGIN || "http://localhost:3000",
     serve = true,
+    trustedProxies = process.env.TRUSTED_PROXIES || "",
   } = {},
 ) {
   const app = Fastify({
     logger: false,
     bodyLimit: 128 * 1024,
-    trustProxy: false,
+    trustProxy: trustedProxyAddresses(trustedProxies),
   });
   await app.register(cookie);
   await app.register(rateLimit, { global: false });
@@ -78,14 +80,12 @@ export async function makeApp(
         .code(err.status)
         .send({ error: err.message, detail: err.detail });
     if (err.statusCode)
-      return reply
-        .code(err.statusCode)
-        .send({
-          error:
-            err.statusCode === 429
-              ? "Zu viele Versuche. Bitte später erneut versuchen."
-              : "Anfrage ungültig.",
-        });
+      return reply.code(err.statusCode).send({
+        error:
+          err.statusCode === 429
+            ? "Zu viele Versuche. Bitte später erneut versuchen."
+            : "Anfrage ungültig.",
+      });
     console.error("Serverfehler", err.code || err.name);
     reply
       .code(500)
