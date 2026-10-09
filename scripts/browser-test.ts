@@ -126,7 +126,7 @@ try {
     await page
       .getByRole("button", { name: "Einstellungen", exact: true })
       .click();
-    await page.getByLabel("Darstellung", { exact: true }).selectOption(theme);
+    await page.locator("dialog select").selectOption(theme);
     await page.getByRole("button", { name: "Schließen", exact: true }).click();
     for (const width of [1360, 360, 320]) {
       await page.setViewportSize({ width, height: 900 });
