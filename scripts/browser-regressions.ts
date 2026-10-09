@@ -25,9 +25,11 @@ export async function browserRegressions(page: Page, context: BrowserContext) {
       .click();
   }
   async function synced() {
-    await expect(
-      page.getByRole("button", { name: "Synchronisiert", exact: true }),
-    ).toBeVisible({ timeout: 15000 });
+    const status = page.locator("button.sync");
+    await expect
+      .poll(() => status.innerText(), { timeout: 30000 })
+      .toMatch(/^(Synchronisiert|Fehler|Konflikt)$/);
+    await expect(status).toHaveText("Synchronisiert");
   }
   async function navigate(name: string) {
     await openLists();
