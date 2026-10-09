@@ -1,0 +1,1078 @@
+import React, { useState, useEffect, useRef, type FormEvent } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  TrayIcon,
+  SunIcon,
+  CalendarDotsIcon,
+  StackIcon,
+  StarIcon,
+  CheckCircleIcon,
+  TrashIcon,
+  PlusIcon,
+  ArrowUpIcon,
+  MagnifyingGlassIcon,
+  ListIcon,
+  XIcon,
+  UsersIcon,
+  ArrowClockwiseIcon,
+  SignOutIcon,
+  GearSixIcon,
+  CheckIcon,
+  WarningCircleIcon,
+} from "@phosphor-icons/react";
+import {
+  TITLE_MAX,
+  taskPatch,
+  today,
+  todaySection,
+  type Task,
+  type List as TaskList,
+} from "../shared/model";
+import * as store from "./store";
+import "./style.css";
+const views = [
+  ["Eingang", TrayIcon],
+  ["Heute", SunIcon],
+  ["Geplant", CalendarDotsIcon],
+  ["Alle", StackIcon],
+  ["Markiert", StarIcon],
+  ["Erledigt", CheckCircleIcon],
+  ["Papierkorb", TrashIcon],
+] as const;
+function Modal({
+  title,
+  onClose,
+  children,
+  panel = false,
+}: {
+  panel?: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    ref.current?.showModal();
+  }, []);
+  return (
+    <dialog
+      className={panel ? "detail-panel" : undefined}
+      ref={ref}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      aria-labelledby="dialog-title"
+    >
+      <header>
+        <h2 id="dialog-title">{title}</h2>
+        <button onClick={onClose} aria-label="Schließen">
+          <XIcon />
+        </button>
+      </header>
+      {children}
+    </dialog>
+  );
+}
+function Login({ onClose }: { onClose?: () => void }) {
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    setBusy(true);
+    try {
+      await store.login(
+        String(form.get("username")),
+        String(form.get("password")),
+      );
+      onClose?.();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="login">
+      <div className="brand">
+        <span className="logo">n.</span>Notera
+      </div>
+      <h1>Platz für deine Gedanken.</h1>
+      <p>Melde dich an, um deine Aufgaben zu öffnen.</p>
+      <form onSubmit={submit}>
+        <label>
+          Benutzername
+          <input name="username" autoComplete="username" required autoFocus />
+        </label>
+        <label>
+          Passwort
+          <input
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            required
+          />
+        </label>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        <button className="primary" disabled={busy}>
+          {busy ? "Anmelden …" : "Anmelden"}
+        </button>
+      </form>
+      <small>
+        Konten werden auf deinem Server eingerichtet.
+        <br />
+        Keine öffentliche Registrierung.
+      </small>
+    </div>
+  );
+}
+function App() {
+  const [, render] = useState(0);
+  useEffect(() => store.subscribe(() => render((v) => v + 1)), []);
+  useEffect(() => {
+    void store.init();
+    if ("serviceWorker" in navigator && import.meta.env.PROD)
+      void navigator.serviceWorker.register("/sw.js");
+  }, []);
+  const state = store.getState();
+  const data = store.projected();
+  const user = state.user;
+  const [view, setView] = useState("Eingang");
+  const [nav, setNav] = useState(false);
+  const [query, setQuery] = useState("");
+  const [title, setTitle] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [showDone, setShowDone] = useState(false);
+  const [modal, setModal] = useState<
+    "list" | "settings" | "conflicts" | "login" | null
+  >(null);
+  const [manage, setManage] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [undo, setUndo] = useState<{ id: string; done: boolean } | null>(null);
+  const [theme, setTheme] = useState(
+    localStorage.getItem("notera-theme") || "dark",
+  );
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("notera-theme", theme);
+  }, [theme]);
+  async function act(fn: () => Promise<unknown>) {
+    try {
+      setError("");
+      await fn();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  if (!user) return <Login />;
+  const date = today(user.timezone);
+  const inbox = data.lists.find((l) => l.inbox && l.ownerId === user.id);
+  const list = data.lists.find((l) => l.id === view);
+  const target = list || inbox;
+  const heading = list?.name || view;
+  const chosen = data.tasks.find((t) => t.id === selected);
+  const managed = data.lists.find((l) => l.id === manage);
+  const syncStatus = store.status();
+  const tasks = data.tasks
+    .filter((t) => {
+      if (view === "Papierkorb") return t.deleted;
+      if (t.deleted) return false;
+      if (view === "Erledigt") return t.done;
+      if (!showDone && t.done) return false;
+      if (query) return true;
+      if (list) return t.listId === list.id;
+      if (view === "Eingang") return t.listId === inbox?.id;
+      if (view === "Heute")
+        return !!todaySection(t, data.preferences[t.id], date, user.timezone);
+      if (view === "Geplant") return !!t.due;
+      if (view === "Markiert") return data.preferences[t.id]?.starred;
+      return true;
+    })
+    .filter(
+      (t) =>
+        !query ||
+        `${t.title} ${t.notes} ${t.links.join(" ")}`
+          .toLocaleLowerCase("de")
+          .includes(query.toLocaleLowerCase("de")),
+    )
+    .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+  const sections =
+    view === "Heute" && !query
+      ? ["Überfällig", "Heute", "Nicht geschafft"]
+      : [""];
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    const parsed = taskPatch.safeParse({ title });
+    if (!parsed.success) {
+      setError("Bitte einen Titel mit 1–240 Zeichen eingeben.");
+      return;
+    }
+    if (!target) return;
+    await act(async () => {
+      const id = crypto.randomUUID();
+      await store.enqueue("task", id, {
+        title: parsed.data.title,
+        listId: target.id,
+      });
+      if (view === "Heute")
+        await store.enqueue("preference", id, { today: date });
+      setTitle("");
+      input.current?.focus();
+    });
+  }
+  function navigate(v: string) {
+    setView(v);
+    setNav(false);
+    setSelected(null);
+    setQuery("");
+    setShowDone(false);
+  }
+  return (
+    <div className="shell">
+      <aside className={"sidebar " + (nav ? "visible" : "")}>
+        <div className="brand">
+          <span className="logo">n.</span>Notera
+          <button
+            className="mobile close-nav"
+            onClick={() => setNav(false)}
+            aria-label="Navigation schließen"
+          >
+            <XIcon />
+          </button>
+        </div>
+        <div className="account">
+          <span>{user.name}</span>
+          <span className="avatar">{user.name.slice(0, 2).toUpperCase()}</span>
+        </div>
+        <nav aria-label="Ansichten">
+          {views.map(([name, Icon]) => (
+            <button
+              key={name}
+              className={"nav-item " + (view === name ? "active" : "")}
+              onClick={() => navigate(name)}
+            >
+              <Icon />
+              {name}
+              {name === "Eingang" && (
+                <small>
+                  {
+                    data.tasks.filter(
+                      (t) => t.listId === inbox?.id && !t.done && !t.deleted,
+                    ).length
+                  }
+                </small>
+              )}
+            </button>
+          ))}
+        </nav>
+        <div className="nav-label">
+          MEINE LISTEN
+          <button onClick={() => setModal("list")} aria-label="Liste anlegen">
+            <PlusIcon />
+          </button>
+        </div>
+        <nav aria-label="Listen">
+          {data.lists
+            .filter((l) => !l.inbox)
+            .map((l) => (
+              <button
+                key={l.id}
+                className={"nav-item " + (view === l.id ? "active" : "")}
+                onClick={() => navigate(l.id)}
+              >
+                <span
+                  className={
+                    "dot " + (l.members.length > 1 ? "green" : "purple")
+                  }
+                />
+                <span className="list-name">{l.name}</span>
+                {l.members.length > 1 && (
+                  <UsersIcon aria-label="Geteilte Liste" />
+                )}
+              </button>
+            ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <button className="nav-item" onClick={() => setModal("settings")}>
+            <GearSixIcon />
+            Einstellungen
+          </button>
+        </div>
+      </aside>
+      <main inert={nav}>
+        <header className="topbar">
+          <button
+            className="mobile"
+            onClick={() => setNav(true)}
+            aria-label="Listen öffnen"
+          >
+            <ListIcon />
+          </button>
+          <button
+            className={"sync " + (syncStatus === "Konflikt" ? "error" : "")}
+            onClick={() =>
+              syncStatus === "Anmeldung erforderlich"
+                ? setModal("login")
+                : state.queue.some((q) => q.error)
+                  ? setModal("conflicts")
+                  : void store.sync()
+            }
+          >
+            <span
+              className={
+                "status-dot " + (syncStatus === "Synchronisiert" ? "green" : "")
+              }
+            />
+            {syncStatus}
+          </button>
+          <div className="search">
+            <MagnifyingGlassIcon />
+            <input
+              aria-label="Aufgaben suchen"
+              placeholder="Suchen"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query && (
+              <button onClick={() => setQuery("")} aria-label="Suche leeren">
+                <XIcon />
+              </button>
+            )}
+          </div>
+        </header>
+        <div className="main-content">
+          <div className="heading">
+            <div>
+              <h1>{query ? "Suche" : heading}</h1>
+              <p>
+                {query
+                  ? `Ergebnisse für „${query}“`
+                  : view === "Eingang"
+                    ? "Erst festhalten. Später einordnen."
+                    : view === "Heute"
+                      ? new Intl.DateTimeFormat("de-DE", {
+                          dateStyle: "full",
+                          timeZone: user.timezone,
+                        }).format(new Date())
+                      : list && list.members.length > 1
+                        ? "Gemeinsam mit " +
+                          list.members
+                            .filter((id) => id !== user.id)
+                            .map(
+                              (id) => data.users.find((u) => u.id === id)?.name,
+                            )
+                            .join(", ")
+                        : view === "Papierkorb"
+                          ? "Gelöschte Aufgaben wiederherstellen."
+                          : "Ideen und Aufgaben an einem Ort."}
+              </p>
+            </div>
+            {list && list.ownerId === user.id && (
+              <button
+                aria-label="Liste verwalten"
+                onClick={() => setManage(list.id)}
+              >
+                <GearSixIcon />
+              </button>
+            )}
+          </div>
+          {view !== "Papierkorb" && view !== "Erledigt" && (
+            <>
+              <form className="compose" onSubmit={add}>
+                <PlusIcon />
+                <input
+                  ref={input}
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={TITLE_MAX}
+                  aria-label="Neue Aufgabe"
+                  placeholder="Was möchtest du festhalten?"
+                  autoComplete="off"
+                />
+                <button
+                  className="primary"
+                  aria-label="Aufgabe hinzufügen"
+                  disabled={!target}
+                >
+                  <ArrowUpIcon />
+                </button>
+              </form>
+              {!list && view !== "Eingang" && (
+                <small className="target">
+                  Ziel: persönlicher Eingang
+                  {view === "Heute" ? " · für heute auswählen" : ""}
+                </small>
+              )}
+            </>
+          )}
+          {error && (
+            <div className="notice error" role="alert">
+              {error}
+              <button
+                aria-label="Fehler schließen"
+                onClick={() => setError("")}
+              >
+                <XIcon />
+              </button>
+            </div>
+          )}
+          {state.queue.some((q) => q.error) && (
+            <button className="notice" onClick={() => setModal("conflicts")}>
+              <WarningCircleIcon />
+              Änderungen prüfen · {
+                state.queue.filter((q) => q.error).length
+              }{" "}
+              Konflikt(e)
+            </button>
+          )}
+          <div className="section-title">
+            <span>
+              {tasks.length}{" "}
+              {view === "Papierkorb"
+                ? "im Papierkorb"
+                : view === "Erledigt"
+                  ? "erledigt"
+                  : "Aufgaben"}
+            </span>
+            {!["Erledigt", "Papierkorb"].includes(view) && (
+              <label className="inline">
+                <input
+                  type="checkbox"
+                  checked={showDone}
+                  onChange={(e) => setShowDone(e.target.checked)}
+                />
+                Erledigte zeigen
+              </label>
+            )}
+          </div>
+          {sections.map((section) => {
+            const rows = section
+              ? tasks.filter(
+                  (t) =>
+                    todaySection(
+                      t,
+                      data.preferences[t.id],
+                      date,
+                      user.timezone,
+                    ) === section,
+                )
+              : tasks;
+            return (
+              <section key={section}>
+                {section && rows.length > 0 && (
+                  <h2 className="group-title">{section}</h2>
+                )}
+                {rows.map((t) => (
+                  <div
+                    className={"task-row " + (t.done ? "done" : "")}
+                    key={t.id}
+                  >
+                    <button
+                      className="check-hit"
+                      aria-label={
+                        t.done
+                          ? `${t.title} wieder öffnen`
+                          : `${t.title} erledigen`
+                      }
+                      aria-pressed={t.done}
+                      disabled={t.deleted}
+                      onClick={() =>
+                        void act(async () => {
+                          await store.enqueue("task", t.id, { done: !t.done });
+                          setUndo({ id: t.id, done: t.done });
+                        })
+                      }
+                    >
+                      <span className="check-circle">
+                        {t.done && <CheckIcon weight="bold" />}
+                      </span>
+                    </button>
+                    <button
+                      className="task-content"
+                      onClick={() => setSelected(t.id)}
+                    >
+                      <span>{t.title}</span>
+                      <small>
+                        {[
+                          data.lists.find((l) => l.id === t.listId)?.name,
+                          t.due
+                            ? t.due.kind === "date"
+                              ? t.due.date
+                              : t.due.local.replace("T", " ") +
+                                " · " +
+                                t.due.timezone
+                            : null,
+                          t.assignee
+                            ? data.users.find((u) => u.id === t.assignee)?.name
+                            : null,
+                          state.queue.some((q) => q.id === t.id)
+                            ? "Ausstehend"
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </small>
+                    </button>
+                    {data.preferences[t.id]?.starred && (
+                      <StarIcon
+                        className="star"
+                        weight="fill"
+                        aria-label="Markiert"
+                      />
+                    )}
+                    {t.deleted && (
+                      <button
+                        aria-label={`${t.title} wiederherstellen`}
+                        onClick={() =>
+                          void act(() =>
+                            store.enqueue("task", t.id, { deleted: false }),
+                          )
+                        }
+                      >
+                        <ArrowClockwiseIcon />
+                      </button>
+                    )}
+                    {section === "Überfällig" && (
+                      <button
+                        title="Für heute ausblenden"
+                        aria-label={`${t.title} heute ausblenden`}
+                        onClick={() =>
+                          void act(() =>
+                            store.enqueue("preference", t.id, {
+                              hideOverdue: date,
+                            }),
+                          )
+                        }
+                      >
+                        <XIcon />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </section>
+            );
+          })}
+          {!tasks.length && (
+            <div className="empty">
+              <TrayIcon />
+              <h2>
+                {query
+                  ? "Nichts gefunden"
+                  : view === "Eingang"
+                    ? "Dein Eingang ist frei."
+                    : "Hier ist noch Platz."}
+              </h2>
+              <p>
+                {query
+                  ? "Versuche einen anderen Suchbegriff."
+                  : view === "Papierkorb"
+                    ? "Keine gelöschten Aufgaben."
+                    : "Neue Gedanken kannst du oben festhalten."}
+              </p>
+            </div>
+          )}
+        </div>
+      </main>
+      {undo && (
+        <div className="toast" role="status">
+          <span>{undo.done ? "Wieder geöffnet" : "Erledigt"}</span>
+          <button
+            onClick={() =>
+              void act(async () => {
+                await store.enqueue("task", undo.id, { done: undo.done });
+                setUndo(null);
+              })
+            }
+          >
+            Rückgängig
+          </button>
+          <button
+            aria-label="Rückmeldung schließen"
+            onClick={() => setUndo(null)}
+          >
+            <XIcon />
+          </button>
+        </div>
+      )}
+      {chosen && (
+        <Details
+          key={chosen.id}
+          task={chosen}
+          onClose={() => setSelected(null)}
+        />
+      )}
+      {modal === "login" && (
+        <Modal title="Erneut anmelden" onClose={() => setModal(null)}>
+          <Login onClose={() => setModal(null)} />
+        </Modal>
+      )}
+      {(modal === "list" || managed) && (
+        <ListForm
+          list={managed}
+          onClose={() => {
+            setModal(null);
+            setManage(null);
+          }}
+        />
+      )}
+      {modal === "settings" && (
+        <Modal title="Einstellungen" onClose={() => setModal(null)}>
+          <label>
+            Darstellung
+            <select value={theme} onChange={(e) => setTheme(e.target.value)}>
+              <option value="dark">Dunkel</option>
+              <option value="light">Hell</option>
+              <option value="system">System</option>
+            </select>
+          </label>
+          <p>Zeitzone: {user.timezone}</p>
+          <p className="muted">
+            Notera lässt sich über das Browsermenü als App installieren. Bereits
+            geladene Aufgaben bleiben offline verfügbar.
+          </p>
+          <button
+            className="wide"
+            onClick={() =>
+              void act(async () => {
+                await store.logout();
+                setModal(null);
+              })
+            }
+          >
+            <SignOutIcon />
+            Abmelden und lokalen Cache leeren
+          </button>
+          {error && (
+            <p role="alert" className="error">
+              {error}
+            </p>
+          )}
+        </Modal>
+      )}
+      {modal === "conflicts" && (
+        <Modal title="Änderungen prüfen" onClose={() => setModal(null)}>
+          <p>
+            Deine lokale Änderung bleibt erhalten. Prüfe beide Fassungen, bevor
+            du entscheidest.
+          </p>
+          {state.queue
+            .filter((q) => q.error)
+            .map((q) => (
+              <div className="conflict" key={q.key}>
+                <strong>{q.error}</strong>
+                <h3>Deine Änderung</h3>
+                <ConflictValues value={q.patch} />
+                <h3>Serverfassung</h3>
+                <ConflictValues
+                  value={
+                    q.detail?.current ??
+                    (q.entity === "preference"
+                      ? state.snapshot.preferences[q.id]
+                      : q.entity === "list"
+                        ? state.snapshot.lists.find((l) => l.id === q.id)
+                        : state.snapshot.tasks.find((t) => t.id === q.id))
+                  }
+                />
+                <div className="actions">
+                  <button onClick={() => void act(() => store.discard(q.key))}>
+                    Serverfassung behalten
+                  </button>
+                  <button
+                    onClick={() =>
+                      void act(async () => {
+                        const deleted = state.snapshot.tasks.find(
+                          (t) => t.id === q.id,
+                        )?.deleted;
+                        if (
+                          deleted &&
+                          !confirm(
+                            "Diese Aufgabe wurde gelöscht. Mit deiner Änderung ausdrücklich wiederherstellen?",
+                          )
+                        )
+                          return;
+                        await store.resolveConflict(q.key, !!deleted);
+                      })
+                    }
+                  >
+                    {state.snapshot.tasks.find((t) => t.id === q.id)?.deleted
+                      ? "Wiederherstellen und Änderung anwenden"
+                      : "Meine Änderung anwenden"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          {error && (
+            <p role="alert" className="error">
+              {error}
+            </p>
+          )}
+        </Modal>
+      )}
+    </div>
+  );
+}
+function ConflictValues({
+  value,
+}: {
+  value: Record<string, unknown> | undefined;
+}) {
+  const data = store.getState().snapshot;
+  if (!value) return <p>Auf dem Server nicht mehr vorhanden.</p>;
+  const labels: Record<string, string> = {
+    title: "Titel",
+    notes: "Notizen",
+    links: "Links",
+    listId: "Liste",
+    assignee: "Zuweisung",
+    due: "Fälligkeit",
+    done: "Erledigt",
+    deleted: "Im Papierkorb",
+    today: "Für heute ausgewählt",
+    starred: "Markiert",
+    hideOverdue: "Überfällige ausgeblendet am",
+    name: "Listenname",
+    members: "Mitglieder",
+  };
+  function display(key: string, v: unknown): string {
+    if (v === null || v === undefined || v === "") return "—";
+    if (typeof v === "boolean") return v ? "Ja" : "Nein";
+    if (key === "listId")
+      return data.lists.find((l) => l.id === v)?.name || "Nicht mehr verfügbar";
+    if (key === "assignee")
+      return (
+        data.users.find((u) => u.id === v)?.name || "Nicht mehr zugewiesen"
+      );
+    if (key === "members" && Array.isArray(v))
+      return v
+        .map((id) => data.users.find((u) => u.id === id)?.name || "Unbekannt")
+        .join(", ");
+    if (key === "due" && typeof v === "object") {
+      const d = v as Task["due"];
+      return d?.kind === "date"
+        ? d.date
+        : d?.kind === "time"
+          ? d.local.replace("T", " ") + " · " + d.timezone
+          : "—";
+    }
+    return Array.isArray(v) ? v.join("\n") : String(v);
+  }
+  return (
+    <dl className="conflict-values">
+      {Object.entries(labels)
+        .filter(([key]) => key in value)
+        .map(([key, label]) => (
+          <React.Fragment key={key}>
+            <dt>{label}</dt>
+            <dd>{display(key, value[key])}</dd>
+          </React.Fragment>
+        ))}
+    </dl>
+  );
+}
+function ListForm({ list, onClose }: { list?: TaskList; onClose: () => void }) {
+  const data = store.projected();
+  const user = store.getState().user!;
+  const [name, setName] = useState(list?.name || "");
+  const [members, setMembers] = useState<string[]>(list?.members || [user.id]);
+  const [error, setError] = useState("");
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    try {
+      await store.enqueue("list", list?.id || crypto.randomUUID(), {
+        name: name.trim(),
+        members,
+      });
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  return (
+    <Modal title={list ? "Liste verwalten" : "Neue Liste"} onClose={onClose}>
+      <form onSubmit={submit}>
+        <label>
+          Name
+          <input
+            autoFocus
+            required
+            maxLength={80}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        <fieldset>
+          <legend>Mit bestehenden Benutzern teilen</legend>
+          {data.users
+            .filter((u) => u.id !== user.id)
+            .map((u) => (
+              <label className="inline" key={u.id}>
+                <input
+                  type="checkbox"
+                  checked={members.includes(u.id)}
+                  onChange={(e) =>
+                    setMembers(
+                      e.target.checked
+                        ? [...members, u.id]
+                        : members.filter((id) => id !== u.id),
+                    )
+                  }
+                />
+                {u.name}
+              </label>
+            ))}
+        </fieldset>
+        <p className="muted">
+          Ausgewählte Personen können alle Aufgaben dieser Liste sehen und
+          bearbeiten. Dein Eingang bleibt privat.
+        </p>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        <div className="actions">
+          <button className="primary">
+            {list ? "Änderungen speichern" : "Liste anlegen"}
+          </button>
+          {list && (
+            <button
+              type="button"
+              className="danger"
+              onClick={async () => {
+                if (confirm("Leere Liste löschen?")) {
+                  await store.enqueue("list", list.id, { deleted: true });
+                  onClose();
+                }
+              }}
+            >
+              Liste löschen
+            </button>
+          )}
+        </div>
+      </form>
+    </Modal>
+  );
+}
+function Details({ task: t, onClose }: { task: Task; onClose: () => void }) {
+  const data = store.projected();
+  const user = store.getState().user!;
+  const pref = data.preferences[t.id];
+  const [draft, setDraft] = useState({ ...t });
+  const [links, setLinks] = useState(t.links.join("\n"));
+  const [error, setError] = useState("");
+  const [dueKind, setDueKind] = useState(t.due?.kind || "none");
+  const [dueDate, setDueDate] = useState(
+    t.due?.kind === "date" ? t.due.date : t.due?.local || "",
+  );
+  const [zone, setZone] = useState(
+    t.due?.kind === "time" ? t.due.timezone : user.timezone,
+  );
+  const original = useRef(t);
+  const target = data.lists.find((l) => l.id === draft.listId);
+  const [dirty, setDirty] = useState(false);
+  function close() {
+    if (!dirty || confirm("Ungespeicherte Änderungen verwerfen?")) onClose();
+  }
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    try {
+      const next = {
+        title: draft.title,
+        notes: draft.notes,
+        links: links
+          .split("\n")
+          .map((v) => v.trim())
+          .filter(Boolean),
+        listId: draft.listId,
+        assignee: draft.assignee,
+        due:
+          dueKind === "none"
+            ? null
+            : dueKind === "date"
+              ? { kind: "date", date: dueDate }
+              : { kind: "time", local: dueDate, timezone: zone },
+      };
+      const parsed = taskPatch.parse(next);
+      const patch = Object.fromEntries(
+        Object.entries(parsed).filter(
+          ([k, v]) =>
+            JSON.stringify(v) !== JSON.stringify((original.current as any)[k]),
+        ),
+      );
+      if (patch.listId) {
+        const before = data.lists.find((l) => l.id === original.current.listId);
+        if (
+          JSON.stringify([...(before?.members || [])].sort()) !==
+            JSON.stringify([...(target?.members || [])].sort()) &&
+          !confirm(
+            "Die Sichtbarkeit ändert sich: Nach dem Verschieben sehen alle Mitglieder der Zielliste diese Aufgabe. Fortfahren?",
+          )
+        )
+          return;
+      }
+      if (Object.keys(patch).length)
+        await store.enqueue("task", t.id, patch, original.current.version);
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  return (
+    <Modal title="Aufgabe" panel onClose={close}>
+      <form onSubmit={save} onChange={() => setDirty(true)}>
+        <label>
+          Titel
+          <textarea
+            autoFocus
+            rows={2}
+            maxLength={TITLE_MAX}
+            required
+            value={draft.title}
+            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+          />
+        </label>
+        <label>
+          Notizen
+          <textarea
+            rows={5}
+            maxLength={20000}
+            value={draft.notes}
+            onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+          />
+        </label>
+        <label>
+          Links <small>Ein HTTP-/HTTPS-Link pro Zeile</small>
+          <textarea
+            rows={2}
+            value={links}
+            onChange={(e) => setLinks(e.target.value)}
+          />
+        </label>
+        {t.links.map((link) => (
+          <a key={link} href={link} target="_blank" rel="noopener noreferrer">
+            {link}
+          </a>
+        ))}
+        <div className="form-grid">
+          <label>
+            Liste
+            <select
+              value={draft.listId}
+              onChange={(e) =>
+                setDraft({ ...draft, listId: e.target.value, assignee: null })
+              }
+            >
+              {data.lists.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.inbox ? "Persönlicher Eingang" : l.name}
+                  {l.members.length > 1 ? " · geteilt" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Zuweisung
+            <select
+              value={draft.assignee || ""}
+              onChange={(e) =>
+                setDraft({ ...draft, assignee: e.target.value || null })
+              }
+            >
+              <option value="">Niemand</option>
+              {target?.members.map((id) => (
+                <option key={id} value={id}>
+                  {data.users.find((u) => u.id === id)?.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label>
+          Fälligkeit
+          <select
+            value={dueKind}
+            onChange={(e) => {
+              setDueKind(e.target.value);
+              setDueDate("");
+            }}
+          >
+            <option value="none">Ohne Termin</option>
+            <option value="date">Datum</option>
+            <option value="time">Datum und Uhrzeit</option>
+          </select>
+        </label>
+        {dueKind !== "none" && (
+          <label>
+            {dueKind === "date" ? "Datum" : "Lokale Uhrzeit"}
+            <input
+              type={dueKind === "date" ? "date" : "datetime-local"}
+              required
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+            />
+          </label>
+        )}
+        {dueKind === "time" && (
+          <label>
+            Zeitzone
+            <input
+              required
+              value={zone}
+              onChange={(e) => setZone(e.target.value)}
+            />
+          </label>
+        )}
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        <button className="primary wide" disabled={t.deleted}>
+          Speichern
+        </button>
+      </form>
+      <div className="personal-actions">
+        <button
+          onClick={() =>
+            void store.enqueue("preference", t.id, {
+              today:
+                pref?.today === today(user.timezone)
+                  ? null
+                  : today(user.timezone),
+            })
+          }
+        >
+          <SunIcon />
+          {pref?.today === today(user.timezone)
+            ? "Heute abwählen"
+            : "Für heute auswählen"}
+        </button>
+        <button
+          onClick={() =>
+            void store.enqueue("preference", t.id, { starred: !pref?.starred })
+          }
+        >
+          <StarIcon weight={pref?.starred ? "fill" : "regular"} />
+          {pref?.starred ? "Markierung entfernen" : "Markieren"}
+        </button>
+        <button
+          className="danger"
+          onClick={async () => {
+            await store.enqueue("task", t.id, { deleted: !t.deleted });
+            onClose();
+          }}
+        >
+          <TrashIcon />
+          {t.deleted ? "Wiederherstellen" : "In den Papierkorb"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+createRoot(document.getElementById("root")!).render(<App />);
