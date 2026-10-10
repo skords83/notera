@@ -119,7 +119,7 @@ test("subtasks: independent edits, validation, inherited rights, atomic completi
     const z = randomUUID();
     await run("subtask", z, { taskId: id, title: "Schatz besorgen" });
     assert.equal((await snap()).tasks[0].done, false);
-    version = (await snap()).tasks[0].version;
+    version = (await snap()).tasks.find((t) => t.id === id)!.version;
     await run("task", id, { deleted: true }, version);
     assert.equal((await snap()).subtasks.length, 3);
     await assert.rejects(run("subtask", z, { title: "Trash edit" }, 1), {
@@ -139,13 +139,29 @@ test("subtasks: independent edits, validation, inherited rights, atomic completi
       (await snapshot(target, a, 0, device)).subtasks,
       (await snap()).subtasks,
     );
+    const plain = randomUUID();
+    await run("task", plain, {
+      title: "Status time",
+      listId: inbox,
+      done: true,
+    });
+    const previousTime = (await snap()).tasks.find(
+      (t) => t.id === plain,
+    )!.completedAt;
+    const reopen = command("completion", plain, { action: "reopen" }, 1);
+    await mutate(db, a, reopen);
+    await run("completion", plain, { action: "undo", key: reopen.key }, 2);
+    assert.equal(
+      (await snap()).tasks.find((t) => t.id === plain)!.completedAt,
+      previousTime,
+    );
     // Revocation before replay and move require current source/target rights.
     await run("list", list, { members: [] }, 1);
     await assert.rejects(run("subtask", x, { title: "Denied" }, 9, b), {
       status: 403,
     });
     assert.equal((await snap(b)).subtasks.length, 0);
-    version = (await snap()).tasks[0].version;
+    version = (await snap()).tasks.find((t) => t.id === id)!.version;
     await run("task", id, { deleted: true }, version);
     await db.query(
       "UPDATE tasks SET deleted_at=now()-interval '31 days' WHERE id=$1",

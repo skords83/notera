@@ -1,4 +1,4 @@
-import { useState, useRef, type FormEvent } from "react";
+import { useState, useRef, useEffect, type FormEvent } from "react";
 import { CheckIcon, TrashIcon } from "@phosphor-icons/react";
 import { TITLE_MAX, type Task, type Subtask } from "../shared/model";
 import * as store from "./store";
@@ -7,19 +7,34 @@ function SubtaskRow({
   child,
   disabled,
   report,
+  onRemoved,
 }: {
   child: Subtask;
   disabled: boolean;
   report: (error: string) => void;
+  onRemoved: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(child.title);
   const original = useRef(child.version);
+  const editButton = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef(false);
+  useEffect(() => {
+    if (!editing && returnFocus.current) {
+      editButton.current?.focus();
+      returnFocus.current = false;
+    }
+  }, [editing]);
+  function finishEdit() {
+    returnFocus.current = true;
+    setEditing(false);
+  }
   async function change(patch: Record<string, unknown>, version?: number) {
     try {
       report("");
       await store.enqueue("subtask", child.id, patch, version);
-      setEditing(false);
+      if (patch.deleted) onRemoved();
+      else if (editing) finishEdit();
     } catch (e) {
       report((e as Error).message);
     }
@@ -54,19 +69,21 @@ function SubtaskRow({
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 e.stopPropagation();
-                setEditing(false);
+                e.preventDefault();
+                finishEdit();
               }
             }}
           />
           <div className="actions">
             <button type="submit">Übernehmen</button>
-            <button type="button" onClick={() => setEditing(false)}>
+            <button type="button" onClick={finishEdit}>
               Abbrechen
             </button>
           </div>
         </form>
       ) : (
         <button
+          ref={editButton}
           className={"subtask-title " + (child.done ? "completed" : "")}
           disabled={disabled}
           aria-label={`${child.title} bearbeiten`}
@@ -132,6 +149,7 @@ export function Subtasks({ task }: { task: Task }) {
             child={child}
             disabled={task.deleted}
             report={setError}
+            onRemoved={() => input.current?.focus()}
           />
         ))}
       </ul>

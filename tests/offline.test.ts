@@ -353,6 +353,32 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
       "Local title",
     );
 
+    // A permanently deleted parent never comes back through pending child edits/creates.
+    online = false;
+    await store.enqueue("subtask", childA, { title: "Retain local text" });
+    await store.enqueue("subtask", randomUUID(), {
+      taskId: subParent,
+      title: "Pending new child",
+    });
+    await db.query("DELETE FROM tasks WHERE id=$1", [subParent]);
+    online = true;
+    await store.sync();
+    assert.equal(store.getState().queue.length, 2);
+    assert.ok(store.getState().queue.every((q) => q.status === 410));
+    store = await load("deleted-parent-reload");
+    await store.init();
+    assert.equal(store.getState().queue.length, 2);
+    assert.equal(
+      (await db.query("SELECT id FROM tasks WHERE id=$1", [subParent])).rows
+        .length,
+      0,
+    );
+    await assert.rejects(
+      store.resolveConflict(store.getState().queue[0].key),
+      /nicht mehr vorhanden/,
+    );
+    for (const q of [...store.getState().queue]) await store.discard(q.key);
+
     // Client validation retains the form's responsibility: no invalid mutation is enqueued.
     online = false;
     for (const name of ["   ", "\t \n", "x".repeat(81)])

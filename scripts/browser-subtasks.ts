@@ -30,6 +30,19 @@ export async function subtaskChecks(page: Page, context: BrowserContext) {
       exact: true,
     })
     .click();
+  await page
+    .getByRole("button", {
+      name: "Verstecke auswählen bearbeiten",
+      exact: true,
+    })
+    .click();
+  await page.getByLabel("Unteraufgabentitel bearbeiten").press("Escape");
+  await expect(
+    page.getByRole("button", {
+      name: "Verstecke auswählen bearbeiten",
+      exact: true,
+    }),
+  ).toBeFocused();
   await expect(page.locator(".subtasks h3")).toContainText("1 von 3");
   for (const theme of ["dark", "light"]) {
     await page.evaluate((t) => {
@@ -83,6 +96,7 @@ export async function subtaskChecks(page: Page, context: BrowserContext) {
     .getByRole("button", { name: "Schatz besorgen entfernen", exact: true })
     .click();
   await expect(page.locator(".subtasks h3")).toContainText("0 von 2");
+  await expect(input).toBeFocused();
   await page.getByRole("button", { name: "Schließen", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Synchronisiert", exact: true }),

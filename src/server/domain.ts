@@ -82,6 +82,11 @@ export async function mutate(db: Database, user: string, input: unknown) {
     if (m.entity === "completion" || m.entity === "subtask") {
       if (m.entity === "subtask")
         existing = await one(tx, "SELECT * FROM subtasks WHERE id=$1", [m.id]);
+      if (m.entity === "subtask" && !existing && m.version > 0)
+        fail(
+          410,
+          "Unteraufgabe endgültig gelöscht. Lokale Änderung bleibt erhalten.",
+        );
       const taskId =
         m.entity === "completion"
           ? m.id
