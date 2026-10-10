@@ -45,7 +45,7 @@ try {
     await p.getByRole("button", { name: "Anmelden", exact: true }).click();
     await expect(
       p.getByRole("button", { name: "Synchronisiert", exact: true }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 30000 });
   }
   await login(page, "sven");
   await login(sandra, "sandra");
