@@ -137,7 +137,15 @@ export async function inlineSubtaskChecks(
   await dialog
     .getByLabel("Links", { exact: false })
     .fill("https://example.com/ungespeichert");
-  await dialog
+  await other.reload();
+  const remoteItem = other
+    .locator(".task-item")
+    .filter({ has: other.getByText(title, { exact: true }) });
+  await expect(remoteItem.locator(".task-progress")).toHaveText(
+    "1 von 2 erledigt",
+  );
+  await remoteItem.locator(".subtask-toggle").click();
+  await remoteItem
     .getByRole("button", { name: `${childTitle} wieder öffnen`, exact: true })
     .click();
   await expect(dialog.getByRole("progressbar")).toHaveAttribute(
@@ -149,18 +157,13 @@ export async function inlineSubtaskChecks(
     "Noch ungespeicherte Notiz",
   );
   await synced();
-  await other.reload();
-  const remoteItem = other
-    .locator(".task-item")
-    .filter({ has: other.getByText(title, { exact: true }) });
   await expect(remoteItem.locator(".task-progress")).toHaveText(
     "0 von 2 erledigt",
   );
   await expect(remoteItem.locator(".subtask-toggle")).toHaveAttribute(
     "aria-expanded",
-    "false",
+    "true",
   );
-  await remoteItem.locator(".subtask-toggle").click();
   await remoteItem
     .getByRole("button", { name: "Verstecke auswählen erledigen", exact: true })
     .click();
