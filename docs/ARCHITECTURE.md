@@ -51,3 +51,14 @@ Die initiale SQL-Migration reserviert unabhängige Erinnerungs- und Push-Tabelle
 Client und Server verwenden dieselbe getrimmte Listenname-Validierung (1–80 Zeichen). Das Formular zeigt Fehler bei erhaltenen Eingaben. Die Queue validiert neue Clientaufrufe zusätzlich, berücksichtigt aber auch bereits gespeicherte Anfragen älterer Clients: Eine nie bestätigte neue Liste ist kein Beweis für Rechteentzug. Ihre Ablehnung bleibt in der persistenten Queue samt Fehlermeldung erhalten. Die Oberfläche kann diese Anlegeanfrage mit neuem Idempotenzschlüssel korrigieren oder ausdrücklich zusammen mit ihren lokalen Folgeänderungen verwerfen. Abhängige Aufgaben/Präferenzen warten auf eine erfolgreiche Listenanlage.
 
 Bei tatsächlich entzogenen Listenrechten werden Snapshot und zugehörige Queue-Einträge weiterhin entfernt; auch die Elternliste rein lokaler Aufgaben wird dazu berücksichtigt. Servervalidierungen bleiben gegenüber manipulierten Requests maßgeblich. Es gibt keine Schemaänderung.
+
+
+## Listenfarben
+
+`src/shared/listColors.ts` definiert stabile Farbkennungen, deutsche Namen und beide Theme-Werte zentral. `auto` erhält die bisherige Ableitung aus Mitgliedschaften. Fehlende/unbekannte Werte aus alten Caches werden bei der Darstellung sicher auf `auto` zurückgeführt; neue Mutationen mit ungültigen Werten werden durch dasselbe Zod-Schema auf Client und Server abgewiesen.
+
+Die additive Migration 002 ergänzt `lists.color` mit Default und CHECK-Constraint. Migration 001 bleibt unverändert. Der Upgrade-Schritt läuft transaktional unter der bestehenden Datenbanksperre. Sync und portable Backups transportieren die Listenfarbe mit der Liste; Restore alter Backups nutzt den Spaltenstandard.
+
+Listen behalten ihre konservative Objektversionsprüfung: Jede zwischenzeitliche Listenänderung kann einen Konflikt auslösen, der bestehende Dialog erhält beide Fassungen. Die Farbe nutzt keine separate Queue oder persönliche Präferenz. Das Formular merkt sich die beim Öffnen gelesene Version und sendet nur veränderte Felder; die Auflösung eines Farbkonflikts überschreibt damit weder Namen noch Mitglieder. Nur der Besitzer darf Listen mutieren; diese bestehende serverseitige Prüfung gilt auch für Farben. Der Eingang bleibt gegen Änderungen gesperrt.
+
+Die Auswahl verwendet native Radiobuttons (Pfeiltasten, Tab, Screenreader-Namen), 44×44-Pixel-Ziele, sichtbaren Fokus und ein zusätzliches Häkchen. Farben erscheinen nur als Navigationspunkt und schmaler Überschriftakzent. Abbrechen oder Schließen erzeugt keine Mutation.

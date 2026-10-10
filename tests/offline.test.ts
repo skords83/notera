@@ -96,6 +96,67 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
     await store.login("sven", "test-password-offline");
     const inbox = store.projected().lists.find((l) => l.inbox)!.id;
     online = false;
+    const colorList = randomUUID();
+    await assert.rejects(
+      store.enqueue("list", colorList, { name: "Farben", color: "invalid" }),
+    );
+    await store.enqueue("list", colorList, {
+      name: "Farben",
+      members: [user, other],
+      color: "sage",
+    });
+    await store.enqueue("list", colorList, { color: "ochre" });
+    store = await load("color-reload");
+    await store.init();
+    assert.equal(
+      store.projected().lists.find((l) => l.id === colorList)?.color,
+      "ochre",
+    );
+    online = true;
+    await store.sync();
+    assert.equal(store.getState().queue.length, 0);
+    assert.equal(
+      (await snapshot(db, other, 0, randomUUID())).lists.find(
+        (l) => l.id === colorList,
+      )?.color,
+      "ochre",
+    );
+    online = false;
+    await store.enqueue("list", colorList, { color: "teal" });
+    const colorVersion = store
+      .projected()
+      .lists.find((l) => l.id === colorList)!.version;
+    await mutate(db, user, {
+      key: randomUUID(),
+      device: randomUUID(),
+      entity: "list",
+      id: colorList,
+      version: colorVersion,
+      patch: { name: "Umbenannt" },
+    });
+    online = true;
+    await store.sync();
+    assert.equal(store.status(), "Konflikt");
+    const pendingColor = store
+      .getState()
+      .queue.find((q) => q.id === colorList)!;
+    assert.deepEqual(pendingColor.patch, { color: "teal" });
+    await store.resolveConflict(pendingColor.key);
+    await store.sync();
+    const colored = (await snapshot(db, other, 0, randomUUID())).lists.find(
+      (l) => l.id === colorList,
+    )!;
+    assert.equal(colored.color, "teal");
+    assert.equal(colored.name, "Umbenannt");
+    assert.deepEqual(new Set(colored.members), new Set([user, other]));
+    await store.logout();
+    await store.login("sven", "test-password-offline");
+    assert.equal(
+      store.projected().lists.find((l) => l.id === colorList)?.color,
+      "teal",
+    );
+
+    online = false;
     const id = randomUUID();
     await store.enqueue("task", id, {
       title: "Offline angelegt",

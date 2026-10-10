@@ -2,7 +2,7 @@
 
 Selbst gehostete Aufgaben-App für zwei Personen. React/Vite-PWA, Fastify-API und PostgreSQL. Darkmode, optional Hell- und Systemmodus. Der Entwicklungsauftrag und die unveränderte Designreferenz liegen unter [`docs/reference/`](docs/reference/).
 
-**Stand: Stufe A implementiert, Abnahme noch nicht vollständig.** Automatisierte Domänen-, API- und Offline-Queue-Tests bestehen. Browser-/Android-Prüfungen bleiben offen. Docker-Build, Compose-Start mit PostgreSQL und Kontopersistenz nach Containerneustart wurden inzwischen in GitHub Actions erfolgreich geprüft. Stufe B wurde entsprechend der vorgeschriebenen Reihenfolge noch nicht begonnen. Details: [Prüfbericht](docs/STATUS.md).
+**Stand: Stufe A implementiert, Abnahme noch nicht vollständig.** Automatisierte Domänen-, API- und Offline-Queue-Tests bestehen. Browser-/Android-Prüfungen bleiben offen. Docker-Build, Compose-Start mit PostgreSQL und Kontopersistenz nach Containerneustart wurden inzwischen in GitHub Actions erfolgreich geprüft. Listenfarben sind als gesondert beauftragte Erweiterung umgesetzt; weitere Funktionen aus Stufe B sind nicht enthalten. Details: [Prüfbericht](docs/STATUS.md).
 
 ## Lokal starten
 
@@ -85,7 +85,7 @@ DATA_DIR=.data/restored npm run restore -- backups/notera.json
 DATA_DIR=.data/restored npm start
 ```
 
-Die Sicherungsdatei wird exklusiv neu angelegt (Unix-Modus 0600). Die Wiederherstellung verweigert eine Datenbank mit bestehenden Benutzern. Alle Tabellen werden in einer Transaktion gesichert bzw. wiederhergestellt. Nach Restore neu anmelden.
+Die Sicherungsdatei wird exklusiv neu angelegt (Unix-Modus 0600). Die Wiederherstellung verweigert eine Datenbank mit bestehenden Benutzern. Alle Tabellen werden in einer Transaktion gesichert bzw. wiederhergestellt. Nach Restore neu anmelden. Listenfarben sind im bestehenden JSON-Format enthalten; ältere Sicherungen ohne Farbspalte erhalten `auto`. Neue Sicherungen benötigen zum Restore mindestens Schema 002.
 
 Compose:
 
@@ -115,12 +115,13 @@ Die portablen JSON-Sicherungen sind für eine kleine persönliche Installation g
 3. `npm ci`, `npm test`, `npm run build` ausführen, dann lokal neu starten bzw. `docker compose pull && docker compose up -d`.
 4. Gesundheit, Anmeldung und Synchronisation prüfen.
 
-Migration `001_initial.sql` wird nur bei einer frischen Datenbank ausgeführt und in `schema_migrations` erfasst. Für spätere Schemaänderungen müssen neue nummerierte Migrationen und gesonderte Upgrade-Anweisungen ergänzt werden. Es gibt keine automatische destruktive Migration. Ein neuer Service Worker wartet, bis alte App-Tabs geschlossen sind; nach einem Update alle Tabs einmal schließen und neu öffnen.
+Migration `001_initial.sql` wird nur bei einer frischen Datenbank ausgeführt und in `schema_migrations` erfasst. Für spätere Schemaänderungen müssen neue nummerierte Migrationen und gesonderte Upgrade-Anweisungen ergänzt werden. Migration `002_list_colors.sql` ergänzt beim Start transaktional `lists.color` (Standard `auto`); bestehende Daten bleiben erhalten. Sie läuft sowohl mit PostgreSQL als auch PGlite und wird nur einmal angewendet. Es gibt keine automatische destruktive Migration. Ein neuer Service Worker wartet, bis alte App-Tabs geschlossen sind; nach einem Update alle Tabs einmal schließen und neu öffnen.
 
 ## Bedienung und Grenzen
 
 - Titel + Enter genügt. Titel werden beidseitig getrimmt, maximal 240 UTF-16-Codeeinheiten. Keine natürliche Datumserkennung.
 - Eingang ist immer privat. Neue Listen sind privat, bis beim Anlegen oder Verwalten ausdrücklich Personen gewählt werden.
+- Beim Anlegen und Verwalten einer Liste kann der Besitzer eine von zehn ruhigen Farben wählen. „Automatisch“ erhält die bisherige Darstellung (privat violett, geteilt grün). Speichern übernimmt die Auswahl auch offline; Abbrechen verwirft sie. Die Farbe gilt für alle Mitglieder, Eingang und Systemansichten bleiben unverändert.
 - Mitglieder können Aufgaben bearbeiten, verschieben und erledigen. Nur Besitzer verwalten Listen/Mitgliedschaften. Eine Liste lässt sich nur löschen, wenn sie einschließlich Papierkorb leer ist.
 - Heute-Auswahl und Markierung sind persönlich. Überfällige Aufgaben stehen separat; ausgeblendete Überfällige bleiben in ihrer Liste. Frühere persönliche Auswahl erscheint unter „Nicht geschafft“.
 - Eine Fälligkeit erzeugt keine Erinnerung. Datumswerte bleiben Kalenderdaten; Uhrzeiten haben eine explizite Zeitzone. Mehrdeutige oder nicht existierende Uhrzeiten werden abgewiesen.

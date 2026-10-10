@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Temporal } from "@js-temporal/polyfill";
+import { listColorSchema, type ListColor } from "./listColors";
 export const TITLE_MAX = 240;
 export const uuid = z.string().uuid();
 export const LIST_NAME_MAX = 80;
@@ -14,6 +15,7 @@ export const listName = z
 export const listPatch = z
   .object({
     name: listName,
+    color: listColorSchema,
     members: z.array(uuid).max(20),
     deleted: z.boolean(),
   })
@@ -107,6 +109,7 @@ export type Preference = {
 export type List = {
   id: string;
   ownerId: string;
+  color?: ListColor; // Optional for pre-upgrade offline snapshots.
   inbox: boolean;
   name: string;
   version: number;
