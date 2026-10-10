@@ -43,6 +43,18 @@ export async function colorChecks(
     page.getByRole("radio", { name: "Salbei", exact: true }),
   ).toBeChecked();
   await page.getByRole("button", { name: "Abbrechen", exact: true }).click();
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await expect
+    .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller))
+    .toBe(true);
+  const colorPatches: unknown[] = [];
+  const observe = (request: import("@playwright/test").Request) => {
+    if (request.url().endsWith("/api/mutations") && request.method() === "POST")
+      colorPatches.push(request.postDataJSON().patch);
+  };
+  page.on("request", observe);
   await context.setOffline(true);
   await page
     .getByRole("button", { name: "Liste verwalten", exact: true })
@@ -56,11 +68,22 @@ export async function colorChecks(
     "rgb(141, 191, 192)",
   );
   await page.reload();
+  await expect(
+    page
+      .getByRole("navigation", { name: "Listen", exact: true })
+      .getByRole("button", { name: /Farbauswahl/ })
+      .locator(".dot"),
+  ).toHaveCSS("background-color", "rgb(141, 191, 192)");
   await context.setOffline(false);
   await sync();
   await expect(member.locator(".heading-color")).toHaveCSS(
     "background-color",
     "rgb(141, 191, 192)",
+  );
+  page.off("request", observe);
+  expect(colorPatches).toContainEqual({ color: "teal" });
+  expect(colorPatches.every((p) => Object.keys(p as object).length === 1)).toBe(
+    true,
   );
   for (const theme of ["dark", "light"]) {
     await page

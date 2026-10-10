@@ -8,12 +8,14 @@ Basis: `main` bei `226409d855bdd8820430c8fec3137e8e30bbe709`; relevante Quelldat
 - Offline-Integration mit IndexedDB und echter API/Datenbank: offline anlegen/umfärben, Modul-Neuladen, Wiederverbindung, Konflikt durch konkurrierende Umbenennung, ausdrückliche Auflösung ohne Überschreiben von Name/Mitgliedern und erneute Anmeldung.
 - PGlite: Upgrade von Schema 001, wiederholte Migration, Restore alter Sicherung ohne Farbspalte, Backup/Restore mit expliziter Farbe, Datenbank-Constraint und sichere Fallbacks.
 - `npm run build`: TypeScript und Produktionsbuild bestanden. Bestehende Bundlegrößenwarnung bleibt.
+- GitHub Actions [Lauf 38024760857](https://github.com/skords83/notera/actions/runs/38024760857): Browserregressionen einschließlich Farbauswahl, Abbrechen, Tastatur, Mitgliederabgleich und Offlineänderung sowie Desktop-/360-/320px-Screenshots in beiden Modi bestanden. Container-Build, PostgreSQL-Start, Anmeldungseinrichtung und Neustartprüfung ebenfalls erfolgreich; GHCR-Veröffentlichung wie vorgesehen übersprungen.
+- Berechneter Kontrast der zehn neuen Farben gegenüber dem App-Hintergrund: mindestens 5,0:1 hell und 7,4:1 dunkel.
 
 ## Blockiert / noch nicht nachgewiesen
 
 - Lokaler Browserlauf versucht: `listen EPERM 127.0.0.1:3217`. Deshalb lokal keine Desktop-/360-/320-Pixel-Sichtprüfung und keine Screenreader-Abnahme behauptet.
-- Docker ist lokal nicht verfügbar. PostgreSQL-/Containerprüfung erfolgt über den bestehenden PR-Workflow.
-- Browserregressionen für Auswahl, Abbrechen, Tastatur, zwei Mitglieder, Offline-Reload sowie Screenshots für 1360/360/320 Pixel in Hell/Dunkel sind im bestehenden Browserlauf ergänzt. CI-Ergebnis und Sichtprüfung werden nach dem PR-Lauf ergänzt; echte Android-Geräte wurden nicht geprüft.
+- Docker ist lokal nicht verfügbar. PostgreSQL-/Containerprüfung erfolgt über den bestehenden PR-Workflow; dieser prüft zusätzlich Migration 002, den Altstandard und Farbpersistenz nach Neustart.
+- Die CI-Screenshots wurden erzeugt, konnten aber lokal nicht zur Sichtprüfung heruntergeladen werden (DNS-Zugriff auf den Artefaktserver blockiert). Automatische Layoutchecks ersetzen keine Sichtprüfung. Echte Android-Geräte und Screenreader wurden nicht geprüft.
 
 ## VPS-Update nach späterer Freigabe
 

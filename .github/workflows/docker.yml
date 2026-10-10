@@ -58,12 +58,16 @@ jobs:
           curl --fail --retry 5 --retry-delay 2 http://localhost:3000/api/health
           curl --fail --output /dev/null http://localhost:3000/
           docker compose exec -T -e NOTERA_BOOTSTRAP_PASSWORD="$POSTGRES_PASSWORD" app npm run user:add -- ci-user "CI user"
+          docker compose exec -T db psql -U notera -d notera -v ON_ERROR_STOP=1 -c "INSERT INTO lists(id,owner_id,name,color) SELECT '10000000-0000-4000-8000-000000000001',id,'CI list color','teal' FROM users WHERE username='ci-user'"
+          docker compose exec -T db psql -U notera -d notera -tAc "SELECT color FROM lists WHERE inbox" | grep -qx 'auto'
+          docker compose exec -T db psql -U notera -d notera -tAc "SELECT version FROM schema_migrations WHERE version=2" | grep -qx '2'
       - name: Check persistence after restart
         run: |
           docker compose restart db app
           docker compose up --detach --wait --wait-timeout 120
           curl --fail --retry 10 --retry-delay 3 http://localhost:3000/api/health
           docker compose exec -T db psql -U notera -d notera -tAc "SELECT count(*) FROM users WHERE username='ci-user'" | grep -qx '1'
+          docker compose exec -T db psql -U notera -d notera -tAc "SELECT color FROM lists WHERE id='10000000-0000-4000-8000-000000000001'" | grep -qx 'teal'
       - name: Container logs on failure
         if: failure() && env.POSTGRES_PASSWORD != ''
         run: docker compose logs --no-color --tail 150
