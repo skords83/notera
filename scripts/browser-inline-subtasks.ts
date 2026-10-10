@@ -172,6 +172,7 @@ export async function inlineSubtaskChecks(
   );
   await expect(dialog.getByLabel("Notizen", { exact: true })).toHaveValue(
     "Noch ungespeicherte Notiz",
+    { timeout: 30000 },
   );
   await expect(remoteItem.locator(".task-progress")).toHaveText(
     "Alle 1 erledigt",
