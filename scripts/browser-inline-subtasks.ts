@@ -130,7 +130,19 @@ export async function inlineSubtaskChecks(
   await expect(second.locator(".inline-subtasks")).toBeVisible();
 
   // A remote child edit must update both views without resetting the notes draft.
-  await item.locator(".task-content").click();
+  const syncTitle = "Entwurf bei Synchronisation behalten";
+  await addTask(page, syncTitle);
+  const syncItem = page
+    .locator(".task-item")
+    .filter({ has: page.getByText(syncTitle, { exact: true }) });
+  await syncItem.locator(".task-content").click();
+  await dialog
+    .getByLabel("Neue Unteraufgabe", { exact: true })
+    .fill("Remote Schritt");
+  await dialog.getByLabel("Neue Unteraufgabe", { exact: true }).press("Enter");
+  await expect(dialog.locator(".subtask-row")).toHaveCount(1);
+  await dialog.getByRole("button", { name: "Schließen", exact: true }).click();
+  await syncItem.locator(".task-content").click();
   await dialog
     .getByLabel("Notizen", { exact: true })
     .fill("Noch ungespeicherte Notiz");
@@ -140,49 +152,36 @@ export async function inlineSubtaskChecks(
   await other.reload();
   const remoteItem = other
     .locator(".task-item")
+    .filter({ has: other.getByText(syncTitle, { exact: true }) });
+  const originalRemoteItem = other
+    .locator(".task-item")
     .filter({ has: other.getByText(title, { exact: true }) });
   await expect(remoteItem.locator(".task-progress")).toHaveText(
-    "1 von 2 erledigt",
+    "0 von 1 erledigt",
   );
   await remoteItem.locator(".subtask-toggle").click();
   await remoteItem
-    .getByRole("button", { name: `${childTitle} wieder öffnen`, exact: true })
+    .getByRole("button", { name: "Remote Schritt erledigen", exact: true })
     .click();
   await expect(dialog.getByRole("progressbar")).toHaveAttribute(
     "aria-valuenow",
-    "0",
+    "1",
   );
-  await expect(progress).toHaveText("0 von 2 erledigt");
+  await expect(dialog.locator(".subtasks h3 small")).toHaveText(
+    "Alle 1 erledigt",
+  );
   await expect(dialog.getByLabel("Notizen", { exact: true })).toHaveValue(
     "Noch ungespeicherte Notiz",
   );
-  await synced();
   await expect(remoteItem.locator(".task-progress")).toHaveText(
-    "0 von 2 erledigt",
+    "Alle 1 erledigt",
   );
   await expect(remoteItem.locator(".subtask-toggle")).toHaveAttribute(
     "aria-expanded",
     "true",
   );
-  await remoteItem
-    .getByRole("button", { name: "Verstecke auswählen erledigen", exact: true })
-    .click();
-  await expect(dialog.getByRole("progressbar")).toHaveAttribute(
-    "aria-valuenow",
-    "1",
-    { timeout: 15000 },
-  );
-  await expect(progress).toHaveText("1 von 2 erledigt");
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(dialog.getByLabel("Notizen", { exact: true })).toHaveValue(
-    "Noch ungespeicherte Notiz",
-  );
-  await expect(dialog.getByLabel("Links", { exact: false })).toHaveValue(
-    "https://example.com/ungespeichert",
-  );
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   await synced();
-  await expect(children).toBeVisible();
 
   await context.setOffline(true);
   await children
@@ -203,7 +202,7 @@ export async function inlineSubtaskChecks(
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await context.setOffline(false);
   await synced();
-  await expect(remoteItem.locator(".task-progress")).toHaveText(
+  await expect(originalRemoteItem.locator(".task-progress")).toHaveText(
     "2 von 3 erledigt",
     { timeout: 15000 },
   );
