@@ -388,3 +388,39 @@ test("HTTP requires sessions, enforces CSRF origin, and protects login with rate
     await app.close();
   }
 });
+
+test("list colors persist, sync to members, preserve fields and enforce rights/versions", async () => {
+  const id = randomUUID();
+  await mutate(
+    db,
+    a,
+    mutation("list", id, { name: "Farbliste", members: [b], color: "sage" }),
+  );
+  const read = async (user = a) =>
+    (await snap(user)).lists.find((l) => l.id === id)!;
+  assert.equal((await read(b)).color, "sage");
+  await assert.rejects(
+    mutate(db, b, mutation("list", id, { color: "rose" }, 1)),
+    { status: 403 },
+  );
+  for (const color of ["unknown", "#ffffff", null, 42]) {
+    await assert.rejects(mutate(db, a, mutation("list", id, { color }, 1)));
+    await assert.rejects(
+      mutate(db, a, mutation("list", randomUUID(), { name: "Invalid", color })),
+    );
+  }
+  await assert.rejects(
+    mutate(db, a, mutation("list", inbox, { color: "rose" }, 1)),
+    { status: 400 },
+  );
+  const before = await read();
+  await mutate(db, a, mutation("list", id, { color: "teal" }, 1));
+  assert.deepEqual(await read(b), { ...before, version: 2, color: "teal" });
+  await assert.rejects(
+    mutate(db, a, mutation("list", id, { color: "rose" }, 1)),
+    { status: 409 },
+  );
+  await mutate(db, a, mutation("list", id, { name: "Neuer Name" }, 2));
+  assert.equal((await read()).color, "teal");
+  await db.migrate(); // Upgrade is idempotent.
+});

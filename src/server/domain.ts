@@ -1,3 +1,4 @@
+import { normalizeListColor } from "../shared/listColors";
 import { createHash } from "node:crypto";
 import {
   mutationSchema,
@@ -117,11 +118,10 @@ export async function mutate(db: Database, user: string, input: unknown) {
       if (!existing) {
         if (m.version !== 0 || !p.name || p.deleted)
           fail(400, "Listenname fehlt.");
-        await tx.query("INSERT INTO lists(id,owner_id,name) VALUES($1,$2,$3)", [
-          m.id,
-          user,
-          p.name,
-        ]);
+        await tx.query(
+          "INSERT INTO lists(id,owner_id,name,color) VALUES($1,$2,$3,$4)",
+          [m.id, user, p.name, p.color ?? "auto"],
+        );
         await tx.query("INSERT INTO memberships VALUES($1,$2)", [m.id, user]);
       } else {
         if (m.version !== existing.version)
@@ -147,12 +147,13 @@ export async function mutate(db: Database, user: string, input: unknown) {
             );
         }
         await tx.query(
-          "UPDATE lists SET name=$2,version=$3,deleted_at=$4 WHERE id=$1",
+          "UPDATE lists SET name=$2,version=$3,deleted_at=$4,color=$5 WHERE id=$1",
           [
             m.id,
             p.name ?? existing.name,
             version,
             p.deleted ? new Date().toISOString() : null,
+            p.color ?? existing.color,
           ],
         );
       }
@@ -315,6 +316,7 @@ export async function snapshot(
         ownerId: l.owner_id,
         inbox: l.inbox,
         name: l.name,
+        color: normalizeListColor(l.color),
         version: l.version,
         members,
       });

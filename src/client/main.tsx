@@ -1,3 +1,8 @@
+import {
+  listColors,
+  normalizeListColor,
+  listColorStyle,
+} from "../shared/listColors";
 import React, {
   useState,
   useEffect,
@@ -192,24 +197,34 @@ function App() {
   const target = list || inbox;
   const heading = list?.name || view;
   const chosen = data.tasks.find((t) => t.id === selected);
-  const managed = data.lists.find((l) => l.id === manage) || (() => {
-    const rejected = store
-      .getState()
-      .queue.find(
-        (q) => q.entity === "list" && q.id === manage && q.version === 0 && q.error,
-      );
-    if (!rejected) return undefined;
-    return {
-      id: rejected.id,
-      name: typeof rejected.patch.name === "string" ? rejected.patch.name : "",
-      ownerId: user.id,
-      inbox: false,
-      version: 0,
-      members: Array.isArray(rejected.patch.members)
-        ? rejected.patch.members.filter((id): id is string => typeof id === "string")
-        : [user.id],
-    } as TaskList;
-  })();
+  const managed =
+    data.lists.find((l) => l.id === manage) ||
+    (() => {
+      const rejected = store
+        .getState()
+        .queue.find(
+          (q) =>
+            q.entity === "list" &&
+            q.id === manage &&
+            q.version === 0 &&
+            q.error,
+        );
+      if (!rejected) return undefined;
+      return {
+        id: rejected.id,
+        name:
+          typeof rejected.patch.name === "string" ? rejected.patch.name : "",
+        color: normalizeListColor(rejected.patch.color),
+        ownerId: user.id,
+        inbox: false,
+        version: 0,
+        members: Array.isArray(rejected.patch.members)
+          ? rejected.patch.members.filter(
+              (id): id is string => typeof id === "string",
+            )
+          : [user.id],
+      } as TaskList;
+    })();
   const syncStatus = store.status();
   const tasks = data.tasks
     .filter((t) => {
@@ -319,9 +334,14 @@ function App() {
                 onClick={() => navigate(l.id)}
               >
                 <span
-                  className={
-                    "dot " + (l.members.length > 1 ? "green" : "purple")
+                  className="dot list-color"
+                  style={
+                    listColorStyle(
+                      l.color,
+                      l.members.length > 1,
+                    ) as React.CSSProperties
                   }
+                  aria-hidden="true"
                 />
                 <span className="list-name">{l.name}</span>
                 {l.members.length > 1 && (
@@ -381,7 +401,21 @@ function App() {
         <div className="main-content">
           <div className="heading">
             <div>
-              <h1>{query ? "Suche" : heading}</h1>
+              <h1>
+                {!query && list && !list.inbox && (
+                  <span
+                    aria-hidden="true"
+                    className="heading-color list-color"
+                    style={
+                      listColorStyle(
+                        list.color,
+                        list.members.length > 1,
+                      ) as React.CSSProperties
+                    }
+                  />
+                )}
+                {query ? "Suche" : heading}
+              </h1>
               <p>
                 {query
                   ? `Ergebnisse für „${query}“`
@@ -774,11 +808,14 @@ function ConflictValues({
     starred: "Markiert",
     hideOverdue: "Überfällige ausgeblendet am",
     name: "Listenname",
+    color: "Listenfarbe",
     members: "Mitglieder",
   };
   function display(key: string, v: unknown): string {
     if (v === null || v === undefined || v === "") return "—";
     if (typeof v === "boolean") return v ? "Ja" : "Nein";
+    if (key === "color")
+      return listColors.find((c) => c.id === normalizeListColor(v))!.name;
     if (key === "listId")
       return data.lists.find((l) => l.id === v)?.name || "Nicht mehr verfügbar";
     if (key === "assignee")
@@ -811,6 +848,8 @@ function ConflictValues({
 function ListForm({ list, onClose }: { list?: TaskList; onClose: () => void }) {
   const data = store.projected();
   const user = store.getState().user!;
+  const [original] = useState(list);
+  const [color, setColor] = useState(normalizeListColor(list?.color));
   const [name, setName] = useState(list?.name || "");
   const [members, setMembers] = useState<string[]>(list?.members || [user.id]);
   const rejected = store
@@ -831,9 +870,30 @@ function ListForm({ list, onClose }: { list?: TaskList; onClose: () => void }) {
         return;
       }
       setNameInvalid(false);
-      const patch = { name: parsed.data, members };
+      const patch: Record<string, unknown> = {};
+      if (!original || rejected || parsed.data !== original.name)
+        patch.name = parsed.data;
+      if (
+        !original ||
+        rejected ||
+        JSON.stringify([...members].sort()) !==
+          JSON.stringify([...original.members].sort())
+      )
+        patch.members = members;
+      if (!original || rejected || color !== normalizeListColor(original.color))
+        patch.color = color;
+      if (!Object.keys(patch).length) {
+        onClose();
+        return;
+      }
       if (rejected) await store.correctNewList(rejected.key, patch);
-      else await store.enqueue("list", list?.id || crypto.randomUUID(), patch);
+      else
+        await store.enqueue(
+          "list",
+          list?.id || crypto.randomUUID(),
+          patch,
+          original?.version,
+        );
       onClose();
     } catch (e) {
       setError((e as Error).message);
@@ -854,6 +914,38 @@ function ListForm({ list, onClose }: { list?: TaskList; onClose: () => void }) {
             onChange={(e) => setName(e.target.value)}
           />
         </label>
+        <fieldset className="color-picker">
+          <legend>Listenfarbe</legend>
+          <div className="color-options">
+            {listColors.map((c) => (
+              <label className="color-option" key={c.id} title={c.name}>
+                <input
+                  type="radio"
+                  name="list-color"
+                  value={c.id}
+                  checked={color === c.id}
+                  onChange={() => setColor(c.id)}
+                  aria-label={c.name}
+                />
+                <span
+                  className="color-swatch list-color"
+                  style={
+                    listColorStyle(
+                      c.id,
+                      members.length > 1,
+                    ) as React.CSSProperties
+                  }
+                  aria-hidden="true"
+                >
+                  {color === c.id ? "✓" : ""}
+                </span>
+              </label>
+            ))}
+          </div>
+          <span className="muted">
+            {listColors.find((c) => c.id === color)!.name}
+          </span>
+        </fieldset>
         <fieldset>
           <legend>Mit bestehenden Benutzern teilen</legend>
           {data.users
@@ -887,6 +979,9 @@ function ListForm({ list, onClose }: { list?: TaskList; onClose: () => void }) {
         <div className="actions">
           <button className="primary">
             {list ? "Änderungen speichern" : "Liste anlegen"}
+          </button>
+          <button type="button" onClick={onClose}>
+            Abbrechen
           </button>
           {list && !rejected && (
             <button

@@ -66,7 +66,22 @@ export class Database implements Query {
       if (this.pool) await this.pool.query(`BEGIN;${sql}COMMIT;`);
       else await this.lite!.exec(`BEGIN;${sql}COMMIT;`);
     }
+    await this.transaction(async (tx) => {
+      const applied = await one(
+        tx,
+        "SELECT version FROM schema_migrations WHERE version=2",
+      );
+      if (!applied) {
+        const sql = await readFile(
+          new URL("../../migrations/002_list_colors.sql", import.meta.url),
+          "utf8",
+        );
+        for (const statement of sql.split(";").filter((s) => s.trim()))
+          await tx.query(statement);
+      }
+    });
   }
+
   async close() {
     await this.tail;
     if (this.pool) await this.pool.end();

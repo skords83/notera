@@ -1,3 +1,26 @@
+# Anpassbare Listenfarben – 10. Oktober 2026
+
+Basis: `main` bei `226409d855bdd8820430c8fec3137e8e30bbe709`; relevante Quelldateien vor Änderungen über den GitHub-Connector mit dem lokalen Stand verglichen. Branch: `feat/list-colors`. Keine Unteraufgaben oder weiteren Stufe-B-Funktionen, kein Merge und kein produktiver Rollout.
+
+## Tatsächlich durchgeführt
+
+- `npm test`: fünf Testdateien bestanden. Neue Prüfungen decken Anlegen/Ändern, ungültige Werte, Besitzerrechte, gesperrten Eingang, Synchronisation an ein zweites Mitglied, Felderhalt und veraltete Versionen ab.
+- Offline-Integration mit IndexedDB und echter API/Datenbank: offline anlegen/umfärben, Modul-Neuladen, Wiederverbindung, Konflikt durch konkurrierende Umbenennung, ausdrückliche Auflösung ohne Überschreiben von Name/Mitgliedern und erneute Anmeldung.
+- PGlite: Upgrade von Schema 001, wiederholte Migration, Restore alter Sicherung ohne Farbspalte, Backup/Restore mit expliziter Farbe, Datenbank-Constraint und sichere Fallbacks.
+- `npm run build`: TypeScript und Produktionsbuild bestanden. Bestehende Bundlegrößenwarnung bleibt.
+
+## Blockiert / noch nicht nachgewiesen
+
+- Lokaler Browserlauf versucht: `listen EPERM 127.0.0.1:3217`. Deshalb lokal keine Desktop-/360-/320-Pixel-Sichtprüfung und keine Screenreader-Abnahme behauptet.
+- Docker ist lokal nicht verfügbar. PostgreSQL-/Containerprüfung erfolgt über den bestehenden PR-Workflow.
+- Browserregressionen für Auswahl, Abbrechen, Tastatur, zwei Mitglieder, Offline-Reload sowie Screenshots für 1360/360/320 Pixel in Hell/Dunkel sind im bestehenden Browserlauf ergänzt. CI-Ergebnis und Sichtprüfung werden nach dem PR-Lauf ergänzt; echte Android-Geräte wurden nicht geprüft.
+
+## VPS-Update nach späterer Freigabe
+
+Vorher sichern. Nach Merge und erfolgreichem Image-Build den bestehenden Ablauf `docker compose pull` und `docker compose up -d` verwenden. Migration 002 läuft beim Start automatisch und additiv, auch auf bestehenden Installationen. Alle App-Tabs schließen und neu öffnen, damit der wartende Service Worker aktiviert wird. Anmeldung, Farbauswahl und Abgleich prüfen. Neue JSON-Backups mit Farbe nur auf Schema 002 oder neuer wiederherstellen; alte Backups bleiben kompatibel. Keine neuen Umgebungsvariablen erforderlich.
+
+---
+
 # Aktuelle Korrekturen – 10. Oktober 2026
 
 Basis: `main` bei `bbdb1464cbd17221afa7e308433a95731658650f`. Die lokalen Quelldateien wurden vor Änderungen anhand aller Git-Blob-Prüfsummen mit dem aktuellen GitHub-Baum verglichen; keine Abweichung. Arbeitsbranch: `fix/proxy-login-list-validation-ui`. Kein Merge, keine Änderung produktiver Daten oder Zugangsdaten und kein produktiver Rollout.
