@@ -144,7 +144,7 @@ export async function inlineSubtaskChecks(
   await dialog.getByRole("button", { name: "Schließen", exact: true }).click();
   await syncItem.locator(".task-content").click();
   await dialog
-    .getByLabel("Notizen", { exact: true })
+    .getByRole("textbox", { name: "Notizen", exact: true })
     .fill("Noch ungespeicherte Notiz");
   await dialog
     .getByLabel("Links", { exact: false })
@@ -170,7 +170,9 @@ export async function inlineSubtaskChecks(
   await expect(dialog.locator(".subtasks h3 small")).toHaveText(
     "Alle 1 erledigt",
   );
-  await expect(dialog.getByLabel("Notizen", { exact: true })).toHaveValue(
+  await expect(
+    dialog.getByRole("textbox", { name: "Notizen", exact: true }),
+  ).toHaveValue(
     "Noch ungespeicherte Notiz",
     { timeout: 30000 },
   );
