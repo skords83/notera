@@ -32,7 +32,7 @@ export async function inlineSubtaskChecks(
   await dialog.getByLabel("Neue Unteraufgabe", { exact: true }).press("Enter");
   await expect(dialog.locator(".subtask-row")).toHaveCount(1);
   // The section is directly after the title, with no form nested in another form.
-  const titleLabel = dialog.locator(".detail-panel > label").first();
+  const titleLabel = dialog.locator(":scope > label").first();
   expect(
     await titleLabel.evaluate((el) =>
       el.nextElementSibling?.classList.contains("subtasks"),
