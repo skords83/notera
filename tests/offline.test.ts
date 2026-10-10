@@ -268,6 +268,91 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
       "Remote notes",
     );
     await store.discard(store.getState().queue[0].key);
+    // A new parent and its children survive reload; completion and undo stay atomic.
+    online = false;
+    const subParent = randomUUID(),
+      childA = randomUUID(),
+      childB = randomUUID();
+    await store.enqueue("task", subParent, {
+      title: "Offline parent",
+      listId: inbox,
+    });
+    await store.enqueue("subtask", childA, {
+      taskId: subParent,
+      title: "First",
+    });
+    await store.enqueue("subtask", childA, { title: "Edited offline" });
+    await store.enqueue("subtask", childB, {
+      taskId: subParent,
+      title: "Second",
+    });
+    await store.enqueue("subtask", childB, { done: true });
+    const completionKey = await store.enqueue("completion", subParent, {
+      action: "complete",
+      openIds: [childA],
+    });
+    await store.enqueue("completion", subParent, {
+      action: "undo",
+      key: completionKey,
+    });
+    assert.equal(
+      store.projected().tasks.find((t) => t.id === subParent)?.done,
+      false,
+    );
+    assert.equal(
+      store.projected().subtasks?.find((c) => c.id === childA)?.done,
+      false,
+    );
+    assert.equal(
+      store.projected().subtasks?.find((c) => c.id === childB)?.done,
+      true,
+    );
+    store = await load("subtasks-reload");
+    await store.init();
+    online = true;
+    loseResponse = true;
+    await store.sync();
+    await store.sync();
+    assert.deepEqual(store.getState().queue, []);
+    assert.equal(
+      store.projected().subtasks?.find((c) => c.id === childA)?.title,
+      "Edited offline",
+    );
+    assert.equal(
+      store.projected().subtasks?.find((c) => c.id === childA)?.done,
+      false,
+    );
+    assert.equal(
+      store.projected().subtasks?.find((c) => c.id === childB)?.done,
+      true,
+    );
+    online = false;
+    await store.enqueue("subtask", childA, { title: "Local title" });
+    const cVersion = store
+      .projected()
+      .subtasks!.find((c) => c.id === childA)!.version;
+    await mutate(db, user, {
+      key: randomUUID(),
+      device: randomUUID(),
+      entity: "subtask",
+      id: childA,
+      version: cVersion,
+      patch: { title: "Remote title" },
+    });
+    online = true;
+    await store.sync();
+    assert.equal(store.status(), "Konflikt");
+    assert.equal(
+      store.getState().queue[0].detail.current.title,
+      "Remote title",
+    );
+    await store.resolveConflict(store.getState().queue[0].key);
+    assert.equal(store.getState().queue.length, 0);
+    assert.equal(
+      store.projected().subtasks?.find((c) => c.id === childA)?.title,
+      "Local title",
+    );
+
     // Client validation retains the form's responsibility: no invalid mutation is enqueued.
     online = false;
     for (const name of ["   ", "\t \n", "x".repeat(81)])
@@ -401,6 +486,10 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
       listId: list,
     });
     await store.enqueue("preference", privatePending, { starred: true });
+    await store.enqueue("subtask", randomUUID(), {
+      taskId: privatePending,
+      title: "Entzug entfernt Kind",
+    });
     await mutate(db, other, {
       key: randomUUID(),
       device: randomUUID(),

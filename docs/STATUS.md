@@ -137,3 +137,22 @@ Das ergänzt die lokalen Tests um einen echten Containerlauf. Es ersetzt weder d
 Stufe B: Unteraufgaben, Tags, Listengruppen, Listenfarben/-symbole, Prioritäten, manuelle Sortierung, gespeicherte intelligente Filter, Wiederholungsserien, mehrere Erinnerungen, Web Push, Snooze und Scheduler. Die persönliche Markierung sowie die verlangten Basisansichten sind bereits vorhanden; sie stellen keinen Abschluss von Stufe B dar. Reservierte Erinnerungs-/Push-Tabellen sind ausdrücklich kein funktionierendes Benachrichtigungssystem.
 
 Stufe C bleibt wie beauftragt später: native Standortereignisse, Widgets, Anhänge, differenzierte Rollen und CalDAV.
+
+## Unteraufgaben – Prüfstand 10. Oktober 2026
+
+Basis: GitHub `main` a612ac0ce927f281486e9f89783ac2e42813182b. Alle bereitgestellten Repository-Dateien vor Änderungen gegen GitHub-Blob-Hashes abgeglichen; keine Abweichungen, kein AGENTS.md im Repository. Lokale Git-Metadaten sind in dieser Umgebung nicht zugänglich; Branch/PR werden über den GitHub-Connector erstellt.
+
+Implementiert: Unteraufgaben-UI, Einzelmutationen mit geerbten Serverrechten, Fortschritt, atomare Statusaktionen samt Undo, persistente Offline-Queue und Konfliktauflösung, Migration 003 und rückwärtskompatibler Restore. Details und Upgrade siehe README/Architektur.
+
+Lokal geprüft (ausschließlich temporäre Testdatenbanken/Konten):
+- `npm test`: erfolgreich, sechs Testdateien einschließlich neuer Domänenregression und erweiterter Offline-/Migrationstests.
+- `npm run build`: erfolgreich (TypeScript, Vite, Service Worker). Bestehende Warnung zu einem Bundle über 500 kB bleibt.
+- Domäne: Trim/Leerzeichen/Längenvalidierung, unbekannte Felder, private/geteilte Zugriffe, unabhängige Schritte, gleicher Schritt mit Konflikt, alle Statusregeln, atomare Bestätigung/Undo, verlorene Antwort/Idempotenz, Move-Quell-/Zielrechte, Papierkorb/Restore, Entfernen/Hard-Delete und Nicht-Wiederanlage.
+- Offline: neue Hauptaufgabe und Schritte, Bearbeiten/Abhaken, gemeinsame Erledigung plus Undo, IndexedDB-Neuladen, verlorene Antwort, sichtbarer Konflikt und explizite Auflösung, Rechteentzug einschließlich lokaler Kinder.
+- Migration: bestehende Aufgabe unverändert nach Upgrade, wiederholte Migration, alte Sicherung ohne Unteraufgaben; neuer Backup-/Restore-Roundtrip einschließlich entfernter Schritte.
+
+Blockiert/offen:
+- `npm run test:browser` lokal gestartet, aber bereits beim Testserver durch `listen EPERM: operation not permitted 127.0.0.1:3217` blockiert. Keine lokalen Browserergebnisse oder Sichtprüfungen behauptet.
+- Browserregressionen für Enter/Fokus, Validierung, Bearbeiten, Abhaken/Wiederöffnen/Entfernen, Bestätigen/Abbrechen/Undo, Offlineanlage/Reload sowie Desktop/360/320 in Hell/Dunkel sind in den bestehenden Workflow eingebunden. CI-Ergebnis wird am PR geprüft.
+- Echtes Android-Gerät und Screenreader-Abnahme stehen aus; Chromium ersetzt diese Prüfungen nicht.
+- Lokaler Docker-/PostgreSQL-Containerlauf nicht durchgeführt; Container und Migration laufen im vorhandenen isolierten CI-Compose-Prüfpfad. Kein VPS-Zugriff, kein Deployment, kein Merge.

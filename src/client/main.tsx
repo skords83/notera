@@ -47,6 +47,7 @@ import {
   formatCalendarDate,
   taskCount,
 } from "../shared/presentation";
+import { Subtasks } from "./Subtasks";
 import { UndoToast } from "./UndoToast";
 import "./style.css";
 const views = [
@@ -172,7 +173,12 @@ function App() {
   >(null);
   const [manage, setManage] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [undo, setUndo] = useState<{ id: string; done: boolean } | null>(null);
+  const [undo, setUndo] = useState<{
+    id: string;
+    done: boolean;
+    completionKey?: string;
+  } | null>(null);
+  const [complete, setComplete] = useState<Task | null>(null);
   const dismissUndo = useCallback(() => setUndo(null), []);
   const [theme, setTheme] = useState(
     localStorage.getItem("notera-theme") || "dark",
@@ -543,8 +549,23 @@ function App() {
                       disabled={t.deleted}
                       onClick={() =>
                         void act(async () => {
-                          await store.enqueue("task", t.id, { done: !t.done });
-                          setUndo({ id: t.id, done: t.done });
+                          if (
+                            !t.done &&
+                            data.subtasks?.some(
+                              (c) => c.taskId === t.id && !c.deleted && !c.done,
+                            )
+                          ) {
+                            setComplete(t);
+                            return;
+                          }
+                          const completionKey = await store.enqueue(
+                            "completion",
+                            t.id,
+                            t.done
+                              ? { action: "reopen" }
+                              : { action: "complete", openIds: [] },
+                          );
+                          setUndo({ id: t.id, done: t.done, completionKey });
                         })
                       }
                     >
@@ -561,10 +582,21 @@ function App() {
                         {[
                           data.lists.find((l) => l.id === t.listId)?.name,
                           formatDue(t.due),
+                          data.subtasks?.some(
+                            (c) => c.taskId === t.id && !c.deleted,
+                          )
+                            ? `${data.subtasks.filter((c) => c.taskId === t.id && !c.deleted && c.done).length} von ${data.subtasks.filter((c) => c.taskId === t.id && !c.deleted).length}`
+                            : null,
                           t.assignee
                             ? data.users.find((u) => u.id === t.assignee)?.name
                             : null,
-                          state.queue.some((q) => q.id === t.id)
+                          state.queue.some(
+                            (q) =>
+                              q.id === t.id ||
+                              (q.entity === "subtask" &&
+                                (q.base?.taskId === t.id ||
+                                  q.patch.taskId === t.id)),
+                          )
                             ? "Ausstehend"
                             : null,
                         ]
@@ -632,13 +664,64 @@ function App() {
           )}
         </div>
       </main>
+      {complete && (
+        <Modal
+          title="Alle Schritte erledigen?"
+          onClose={() => setComplete(null)}
+        >
+          <p>
+            „{complete.title}“ enthält{" "}
+            {data.subtasks?.filter(
+              (c) => c.taskId === complete.id && !c.deleted && !c.done,
+            ).length || 0}{" "}
+            offene Schritte. Hauptaufgabe und offene Unteraufgaben gemeinsam
+            erledigen?
+          </p>
+          <div className="actions">
+            <button onClick={() => setComplete(null)}>Abbrechen</button>
+            <button
+              className="primary"
+              onClick={() =>
+                void act(async () => {
+                  const completionKey = await store.enqueue(
+                    "completion",
+                    complete.id,
+                    {
+                      action: "complete",
+                      openIds: (data.subtasks || [])
+                        .filter(
+                          (c) =>
+                            c.taskId === complete.id && !c.deleted && !c.done,
+                        )
+                        .map((c) => c.id),
+                    },
+                  );
+                  setUndo({
+                    id: complete.id,
+                    done: complete.done,
+                    completionKey,
+                  });
+                  setComplete(null);
+                })
+              }
+            >
+              Alles erledigen
+            </button>
+          </div>
+        </Modal>
+      )}
       {undo && (
         <UndoToast
           undo={undo}
           onDismiss={dismissUndo}
           onUndo={() =>
             void act(async () => {
-              await store.enqueue("task", undo.id, { done: undo.done });
+              if (undo.completionKey)
+                await store.enqueue("completion", undo.id, {
+                  action: "undo",
+                  key: undo.completionKey,
+                });
+              else await store.enqueue("task", undo.id, { done: undo.done });
               setUndo(null);
             })
           }
@@ -720,7 +803,9 @@ function App() {
                       ? state.snapshot.preferences[q.id]
                       : q.entity === "list"
                         ? state.snapshot.lists.find((l) => l.id === q.id)
-                        : state.snapshot.tasks.find((t) => t.id === q.id))
+                        : q.entity === "subtask"
+                          ? state.snapshot.subtasks?.find((c) => c.id === q.id)
+                          : state.snapshot.tasks.find((t) => t.id === q.id))
                   }
                 />
                 <div className="actions">
@@ -752,6 +837,13 @@ function App() {
                     >
                       Liste korrigieren
                     </button>
+                  ) : q.entity === "completion" ? (
+                    <p>
+                      Serverfassung behalten und die Aktion anschließend an der
+                      Hauptaufgabe erneut bestätigen. Bei einem
+                      Rückgängig-Konflikt die gewünschten Zustände einzeln
+                      prüfen.
+                    </p>
                   ) : (
                     <button
                       onClick={() =>
@@ -803,6 +895,9 @@ function ConflictValues({
     assignee: "Zuweisung",
     due: "Fälligkeit",
     done: "Erledigt",
+    taskId: "Hauptaufgabe",
+    action: "Aktion",
+    openIds: "Offene Schritte",
     deleted: "Im Papierkorb",
     today: "Für heute ausgewählt",
     starred: "Markiert",
@@ -814,6 +909,17 @@ function ConflictValues({
   function display(key: string, v: unknown): string {
     if (v === null || v === undefined || v === "") return "—";
     if (typeof v === "boolean") return v ? "Ja" : "Nein";
+    if (key === "taskId")
+      return (
+        data.tasks.find((t) => t.id === v)?.title || "Nicht mehr verfügbar"
+      );
+    if (key === "action")
+      return v === "complete"
+        ? "Alles erledigen"
+        : v === "undo"
+          ? "Rückgängig"
+          : "Wieder öffnen";
+    if (key === "openIds" && Array.isArray(v)) return String(v.length);
     if (key === "color")
       return listColors.find((c) => c.id === normalizeListColor(v))!.name;
     if (key === "listId")
@@ -1180,6 +1286,7 @@ function Details({ task: t, onClose }: { task: Task; onClose: () => void }) {
           Speichern
         </button>
       </form>
+      <Subtasks task={t} />
       <div className="personal-actions">
         <button
           onClick={() =>

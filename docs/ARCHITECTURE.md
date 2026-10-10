@@ -44,7 +44,7 @@ Die lokale Kopie liegt im Browserprofil und ist nicht zusätzlich anwendungsseit
 
 Die API protokolliert keine Request-Bodies, Passwörter oder Aufgaben. Serverfehler geben allgemeine Nachrichten zurück. Tokens liegen nicht in LocalStorage; dort liegt nur die Darstellungspräferenz.
 
-Die initiale SQL-Migration reserviert unabhängige Erinnerungs- und Push-Tabellen, bietet aber keinerlei Zustellfunktion. Stufe B erfordert zusätzlich Unteraufgaben mit Zyklenschutz, Tags, Gruppen, Listengestaltung, Sortierung/Filter, Wiederholungsserien und idempotente Jobs. Bibliothekswahl für Wiederholungen erfolgt erst bei dieser Implementierung. Keine handgeschriebene Wiederholungsarithmetik ist vorweggenommen.
+Die initiale SQL-Migration reserviert unabhängige Erinnerungs- und Push-Tabellen, bietet aber keinerlei Zustellfunktion. Weitere Stufe-B-Erweiterungen erfordern Tags, Gruppen, Listengestaltung, Sortierung/Filter, Wiederholungsserien und idempotente Jobs. Bibliothekswahl für Wiederholungen erfolgt erst bei dieser Implementierung. Keine handgeschriebene Wiederholungsarithmetik ist vorweggenommen.
 
 ## Abgelehnte neue Listen
 
@@ -62,3 +62,15 @@ Die additive Migration 002 ergänzt `lists.color` mit Default und CHECK-Constrai
 Listen behalten ihre konservative Objektversionsprüfung: Jede zwischenzeitliche Listenänderung kann einen Konflikt auslösen, der bestehende Dialog erhält beide Fassungen. Die Farbe nutzt keine separate Queue oder persönliche Präferenz. Das Formular merkt sich die beim Öffnen gelesene Version und sendet nur veränderte Felder; die Auflösung eines Farbkonflikts überschreibt damit weder Namen noch Mitglieder. Nur der Besitzer darf Listen mutieren; diese bestehende serverseitige Prüfung gilt auch für Farben. Der Eingang bleibt gegen Änderungen gesperrt.
 
 Die Auswahl verwendet native Radiobuttons (Pfeiltasten, Tab, Screenreader-Namen), 44×44-Pixel-Ziele, sichtbaren Fokus und ein zusätzliches Häkchen. Farben erscheinen nur als Navigationspunkt und schmaler Überschriftakzent. Abbrechen oder Schließen erzeugt keine Mutation.
+
+## Unteraufgaben
+
+Migration 003 ergänzt `subtasks` mit UUID, unveränderlichem `task_id`-Fremdschlüssel (ON DELETE CASCADE), eigener Feldversionierung und serverseitigem Erstellungszeitpunkt. Der Fremdschlüssel zeigt ausschließlich auf `tasks`; Verschachtelung und Zyklen sind dadurch ausgeschlossen. Unteraufgaben enthalten nur Titel, Erledigungs- und Entfernungsstatus. Entfernte Schritte bleiben als nicht editierbare Tombstones bis zum endgültigen Löschen der Hauptaufgabe erhalten. Der autorisierte Snapshot transportiert sie separat und sortiert nach Erstellungszeit/ID. Die UI zeigt nur aktive Schritte innerhalb ihrer Aufgabe.
+
+`subtask`-Mutationen nutzen dieselbe Queue, Idempotenzbelege, Feldkonflikte und Transaktionssperre wie Aufgaben. Zugriff folgt immer der aktuellen Hauptaufgabe/Listenzugehörigkeit, auch vor Replay. Neue Schritte erfordern eine existierende Hauptaufgabe; sie können weder gelöschte Eltern ersetzen noch fremde Eltern referenzieren. Schritte im Papierkorb sind nicht editierbar. Das Verschieben benötigt wie bisher Quell- und Zielrechte und ändert keine Kind-IDs.
+
+`completion` ist eine atomare Statusaktion an einer Hauptaufgabe: `complete` enthält die explizit bestätigten offenen IDs; `reopen` ändert nur den Elternstatus; `undo` verweist auf den Idempotenzschlüssel der ursprünglichen Aktion. Der Server prüft die aktuelle Menge offener Schritte, speichert die vorherigen Zustände/Statusversionen im Mutationsbeleg und stellt sie bei Undo nur wieder her, wenn keine dazwischenliegenden Statusänderungen oder entfernten Schritte entgegenstehen. Titeländerungen werden dabei nicht überschrieben. Auch der vorherige Erledigungszeitpunkt wird restauriert. Änderungen an Hauptaufgabe und Schritten werden unter derselben gesperrten Sync-Uhr committed.
+
+Die optimistische Projektion bildet diese Regeln ab. Lokale Undo-Daten liegen mit der Queue in IndexedDB; nach Bestätigung dient der persistierte Serverbeleg als Grundlage. Bestätigte Mutationen laden erst einen autorisierten Snapshot und entfernen ihren Queue-Eintrag anschließend in derselben IndexedDB-Transaktion. Abhängige Schritte warten auf die Hauptaufgabenanlage; Statusaktionen warten auf vorausgehende Schritte. Nachfolgende Mutationen werden nur bei passenden Feldwerten auf bestätigte Versionen gesetzt. Konflikte sind einzeln auflösbar; bei atomaren Statuskonflikten verwirft man die abgelehnte Aktion und bestätigt den aktuellen Stand neu. Rechteentzug bereinigt auch rein lokale Kinder.
+
+Backup `notera-2` enthält `subtasks` nach `tasks`; ein altes Programm lehnt das neue Format ab, statt Schritte still zu verlieren. Restore akzeptiert zusätzlich `notera-1` ohne Kindtabelle. Beide laufen vollständig in einer Transaktion. Der bestehende GitHub-Actions-Workflow bleibt der Prüf- und Containerweg; PRs veröffentlichen weiterhin keine Images.

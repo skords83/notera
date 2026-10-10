@@ -4,6 +4,7 @@ export const tables = [
   "lists",
   "memberships",
   "tasks",
+  "subtasks",
   "preferences",
   "sync_clock",
   "changes",
@@ -18,7 +19,7 @@ export async function backup(db: Database) {
     for (const table of tables)
       data[table] = (await tx.query(`SELECT * FROM ${table}`)).rows;
     return {
-      format: "notera-1",
+      format: "notera-2",
       createdAt: new Date().toISOString(),
       tables: data,
     };
@@ -26,9 +27,16 @@ export async function backup(db: Database) {
 }
 export async function restore(db: Database, input: any) {
   if (
-    input?.format !== "notera-1" ||
+    !["notera-1", "notera-2"].includes(input?.format) ||
     !input.tables ||
-    tables.some((t) => !Array.isArray(input.tables[t]))
+    tables.some(
+      (t) =>
+        !(
+          t === "subtasks" &&
+          input.format === "notera-1" &&
+          input.tables[t] === undefined
+        ) && !Array.isArray(input.tables[t]),
+    )
   )
     throw new Error("Ungültiges Sicherungsformat.");
   await db.transaction(async (tx) => {
@@ -44,7 +52,7 @@ export async function restore(db: Database, input: any) {
         )
       ).rows;
       const allowed = new Map(cols.map((c) => [c.column_name, c.data_type]));
-      for (const row of input.tables[table]) {
+      for (const row of input.tables[table] || []) {
         const keys = Object.keys(row);
         if (keys.some((k) => !allowed.has(k)))
           throw new Error("Unbekannte Spalte in Sicherung.");

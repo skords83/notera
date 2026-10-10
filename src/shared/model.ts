@@ -54,9 +54,37 @@ export const dueSchema = z.discriminatedUnion("kind", [
       }
     }),
 ]);
+export const taskTitle = z
+  .string()
+  .trim()
+  .min(1, "Bitte gib einen Titel ein, der nicht nur aus Leerzeichen besteht.")
+  .max(TITLE_MAX, "Der Titel darf höchstens 240 Zeichen lang sein.");
+export const subtaskPatch = z
+  .object({
+    taskId: uuid,
+    title: taskTitle,
+    done: z.boolean(),
+    deleted: z.boolean(),
+  })
+  .partial()
+  .strict();
+export type Subtask = {
+  id: string;
+  taskId: string;
+  title: string;
+  done: boolean;
+  deleted: boolean;
+  version: number;
+  createdAt: string;
+};
+export const completionPatch = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("complete"), openIds: z.array(uuid) }).strict(),
+  z.object({ action: z.literal("undo"), key: uuid }).strict(),
+  z.object({ action: z.literal("reopen") }).strict(),
+]);
 export const taskPatch = z
   .object({
-    title: z.string().trim().min(1).max(TITLE_MAX),
+    title: taskTitle,
     notes: z.string().max(20000),
     links: z
       .array(
@@ -127,6 +155,7 @@ export type Snapshot = {
   reset: boolean;
   lists: List[];
   tasks: Task[];
+  subtasks?: Subtask[]; // Older offline snapshots have none.
   preferences: Record<string, Preference>;
   users: User[];
 };
@@ -134,7 +163,7 @@ export const mutationSchema = z
   .object({
     key: uuid,
     device: uuid,
-    entity: z.enum(["task", "preference", "list"]),
+    entity: z.enum(["task", "preference", "list", "subtask", "completion"]),
     id: uuid,
     version: z.number().int().min(0),
     patch: z.record(z.string(), z.unknown()),
