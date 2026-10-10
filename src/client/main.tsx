@@ -169,6 +169,7 @@ function App() {
   const [query, setQuery] = useState("");
   const [title, setTitle] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<Task | null>(null);
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(
     () => new Set(),
   );
@@ -215,7 +216,11 @@ function App() {
   const list = data.lists.find((l) => l.id === view);
   const target = list || inbox;
   const heading = list?.name || view;
-  const chosen = data.tasks.find((t) => t.id === selected);
+  const currentSelection = data.tasks.find((t) => t.id === selected);
+  const chosen = currentSelection || selectedSnapshot;
+  useEffect(() => {
+    if (currentSelection) setSelectedSnapshot(currentSelection);
+  }, [currentSelection?.id, currentSelection?.version]);
   const managed =
     data.lists.find((l) => l.id === manage) ||
     (() => {
@@ -296,6 +301,7 @@ function App() {
     setView(v);
     setNav(false);
     setSelected(null);
+    setSelectedSnapshot(null);
     setQuery("");
     setShowDone(false);
   }
@@ -599,7 +605,10 @@ function App() {
                         <div className="task-summary">
                           <button
                             className="task-content"
-                            onClick={() => setSelected(t.id)}
+                            onClick={() => {
+                              setSelectedSnapshot(t);
+                              setSelected(t.id);
+                            }}
                           >
                             <span>{t.title}</span>
                             <small>
@@ -788,7 +797,10 @@ function App() {
         <Details
           key={chosen.id}
           task={chosen}
-          onClose={() => setSelected(null)}
+          onClose={() => {
+            setSelected(null);
+            setSelectedSnapshot(null);
+          }}
         />
       )}
       {modal === "login" && (
