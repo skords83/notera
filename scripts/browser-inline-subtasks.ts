@@ -32,11 +32,12 @@ export async function inlineSubtaskChecks(
   await dialog.getByLabel("Neue Unteraufgabe", { exact: true }).press("Enter");
   await expect(dialog.locator(".subtask-row")).toHaveCount(1);
   // The section is directly after the title, with no form nested in another form.
+  const titleLabel = dialog.locator(".detail-panel > label").first();
   expect(
-    await dialog
-      .locator(".subtasks")
-      .evaluate((el) => el.previousElementSibling?.textContent?.trim()),
-  ).toBe("Titel");
+    await titleLabel.evaluate((el) =>
+      el.nextElementSibling?.classList.contains("subtasks"),
+    ),
+  ).toBe(true);
   await expect(page.locator("form form")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Schließen", exact: true }).click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -114,11 +115,9 @@ export async function inlineSubtaskChecks(
 
   // Multiple rows may stay expanded independently.
   await addTask(page, "Zweites Inline-Vorhaben");
-  const second = page
-    .locator(".task-item")
-    .filter({
-      has: page.getByText("Zweites Inline-Vorhaben", { exact: true }),
-    });
+  const second = page.locator(".task-item").filter({
+    has: page.getByText("Zweites Inline-Vorhaben", { exact: true }),
+  });
   await second.locator(".task-content").click();
   await dialog
     .getByLabel("Neue Unteraufgabe", { exact: true })
