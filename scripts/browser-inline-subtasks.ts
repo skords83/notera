@@ -88,6 +88,7 @@ export async function inlineSubtaskChecks(
   await expect(dialog).toHaveCount(0);
   await progress.press("Enter");
   await expect(children).toBeVisible();
+  await expect(toggle).toBeFocused();
   await children
     .getByRole("button", { name: `${childTitle} erledigen`, exact: true })
     .focus();

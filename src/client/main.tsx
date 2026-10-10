@@ -607,6 +607,7 @@ function App() {
                         {(children.length > 0 || expanded) && (
                           <button
                             className="subtask-toggle"
+                            id={`${regionId}-toggle`}
                             aria-label={toggleLabel}
                             aria-expanded={expanded}
                             aria-controls={regionId}
@@ -659,7 +660,12 @@ function App() {
                               aria-expanded={expanded}
                               aria-controls={regionId}
                               aria-label={`${subtaskProgress(children.filter((c) => c.done).length, children.length)}. ${toggleLabel}`}
-                              onClick={() => toggleSubtasks(t.id)}
+                              onClick={() => {
+                                document
+                                  .getElementById(`${regionId}-toggle`)
+                                  ?.focus();
+                                toggleSubtasks(t.id);
+                              }}
                             >
                               {subtaskProgress(
                                 children.filter((c) => c.done).length,
