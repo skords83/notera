@@ -564,6 +564,27 @@ function App() {
                   return (
                     <div className="task-item" key={t.id}>
                       <div className={"task-row " + (t.done ? "done" : "")}>
+                        {children.length > 0 || expanded ? (
+                          <button
+                            className="subtask-toggle"
+                            id={`${regionId}-toggle`}
+                            aria-label={toggleLabel}
+                            aria-expanded={expanded}
+                            aria-controls={regionId}
+                            onClick={() => toggleSubtasks(t.id)}
+                          >
+                            {expanded ? (
+                              <CaretDownIcon aria-hidden="true" />
+                            ) : (
+                              <CaretRightIcon aria-hidden="true" />
+                            )}
+                          </button>
+                        ) : (
+                          <span
+                            className="subtask-toggle-placeholder"
+                            aria-hidden="true"
+                          />
+                        )}
                         <button
                           className="check-hit"
                           aria-label={
@@ -604,22 +625,6 @@ function App() {
                             {t.done && <CheckIcon weight="bold" />}
                           </span>
                         </button>
-                        {(children.length > 0 || expanded) && (
-                          <button
-                            className="subtask-toggle"
-                            id={`${regionId}-toggle`}
-                            aria-label={toggleLabel}
-                            aria-expanded={expanded}
-                            aria-controls={regionId}
-                            onClick={() => toggleSubtasks(t.id)}
-                          >
-                            {expanded ? (
-                              <CaretDownIcon aria-hidden="true" />
-                            ) : (
-                              <CaretRightIcon aria-hidden="true" />
-                            )}
-                          </button>
-                        )}
                         <div className="task-summary">
                           <button
                             className="task-content"

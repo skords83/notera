@@ -138,7 +138,7 @@ export async function browserRegressions(page: Page, context: BrowserContext) {
   await synced();
   await expect(page.locator(".section-title")).toContainText("1 Aufgabe");
   await page
-    .getByRole("button", { name: /^Fokus und Rückgängig Korrigierte Liste/ })
+    .getByRole("button", { name: "Fokus und Rückgängig", exact: true })
     .click();
   await dialog.getByLabel("Fälligkeit").selectOption("date");
   await dialog.getByLabel("Datum", { exact: true }).fill("2026-03-29");

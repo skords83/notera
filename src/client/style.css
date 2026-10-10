@@ -360,7 +360,7 @@ main {
 .task-row {
   display: flex;
   align-items: flex-start;
-  gap: 4px;
+  gap: 0;
   padding: 4px 0;
 }
 .check-hit {
@@ -941,9 +941,9 @@ dialog .login {
   }
 }
 
-/* Keep the disclosure next to the title, with separate 44px hit targets. */
-.task-row {
-  gap: 0;
+/* Reserve the disclosure column so all parent titles stay aligned. */
+.subtask-toggle-placeholder {
+  flex: 0 0 44px;
 }
 .task-content small:empty {
   display: none;
