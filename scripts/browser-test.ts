@@ -1,3 +1,4 @@
+import { addTask as add, addTaskWithStorageContention } from "./browser-tasks";
 import { colorChecks } from "./browser-colors";
 /** Real-browser acceptance run; uses disposable accounts and a temporary database. */
 import { chromium, expect, type Page } from "@playwright/test";
@@ -44,18 +45,11 @@ try {
       p.getByRole("button", { name: "Synchronisiert", exact: true }),
     ).toBeVisible();
   }
-  async function add(p: Page, title: string) {
-    await p.getByLabel("Neue Aufgabe", { exact: true }).fill(title);
-    await p.getByLabel("Neue Aufgabe", { exact: true }).press("Enter");
-    await expect(
-      p.getByRole("button", { name: "Synchronisiert", exact: true }),
-    ).toBeVisible();
-  }
   await login(page, "sven");
   await login(sandra, "sandra");
   await login(page2, "sven");
   await colorChecks(page, sandra, a);
-  await add(page, "Privater Gedanke");
+  await addTaskWithStorageContention(page, "Privater Gedanke");
   await page.reload();
   await expect(
     page.getByText("Privater Gedanke", { exact: true }),

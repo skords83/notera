@@ -1,3 +1,13 @@
+# Browser-Race beim Aufgabenanlegen – 10. Oktober 2026
+
+Nach dem Merge der Listenfarben schlug ein Main-Lauf beim Neuladen nach „Privater Gedanke“ fehl. Der bisherige Test wartete nach Enter nur auf „Synchronisiert“. Dieser Status konnte noch vom vorigen Vorgang stammen, bevor die neue IndexedDB-Schreibtransaktion abgeschlossen war. Damit war ein Neuladen vor lokaler Speicherung möglich.
+
+Die Aufgaben-Testhilfe wartet jetzt auf die erfolgreiche Mutationsantwort genau dieser neuen Aufgabe, ihre sichtbare Darstellung, das geleerte Eingabefeld und den abgeschlossenen Sync. Ein Browserregressionstest hält bewusst eine konkurrierende IndexedDB-Schreibtransaktion offen: Obwohl noch „Synchronisiert“ angezeigt wird, darf die Testhilfe nicht fertig werden. Erst nach Freigabe folgen Speicherung, Serverbestätigung und Reload-Nachweis. Keine produktive Speicherlogik oder Schemaänderung.
+
+Lokal durchgeführt: `npm test` (alle fünf Testdateien) und `npm run build` einschließlich TypeScript bestanden; bestehende Bundlegrößenwarnung bleibt. Der lokale Browserlauf bleibt durch die Socket-Sperre blockiert; die tatsächliche Chromium-Ausführung erfolgt im bestehenden GitHub-Actions-Workflow. Ergebnisse des neuen Laufs werden in der Übergabe verlinkt.
+
+---
+
 # Anpassbare Listenfarben – 10. Oktober 2026
 
 Basis: `main` bei `226409d855bdd8820430c8fec3137e8e30bbe709`; relevante Quelldateien vor Änderungen über den GitHub-Connector mit dem lokalen Stand verglichen. Branch: `feat/list-colors`. Keine Unteraufgaben oder weiteren Stufe-B-Funktionen, kein Merge und kein produktiver Rollout.
