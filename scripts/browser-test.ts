@@ -1,5 +1,6 @@
 import { addTask as add, addTaskWithStorageContention } from "./browser-tasks";
 import { inlineSubtaskChecks } from "./browser-inline-subtasks";
+import { subtaskLayoutChecks } from "./browser-subtask-layout";
 import { subtaskChecks } from "./browser-subtasks";
 import { colorChecks } from "./browser-colors";
 /** Real-browser acceptance run; uses disposable accounts and a temporary database. */
@@ -142,6 +143,7 @@ try {
   }
   await subtaskChecks(page, a);
   await inlineSubtaskChecks(page, a, page2);
+  await subtaskLayoutChecks(page);
   await browserRegressions(page, a);
   expect(errors).toEqual([]);
   console.log(

@@ -25,12 +25,44 @@ export async function inlineSubtaskChecks(
   await addTask(page, title);
   await expect(toggle).toHaveCount(0);
   await expect(children).toHaveCount(0);
+  await expect(item.locator(".task-content small")).toBeHidden();
+  const actions = item.getByRole("button", {
+    name: `Aktionen für „${title}“`,
+    exact: true,
+  });
+  await actions.focus();
+  await actions.press("Enter");
+  await page
+    .getByRole("button", { name: "Unteraufgabe hinzufügen", exact: true })
+    .press("Enter");
+  const firstInput = children.getByLabel("Neue Unteraufgabe", { exact: true });
+  await expect(firstInput).toBeFocused();
+  await expect(dialog).toHaveCount(0);
+  await firstInput.fill("Verwerfen");
+  await firstInput.press("Escape");
+  await expect(children).toHaveCount(0);
+  await expect(toggle).toHaveCount(0);
+  await expect(actions).toBeFocused();
+  await actions.click();
+  await page
+    .getByRole("button", { name: "Unteraufgabe hinzufügen", exact: true })
+    .click();
+  await firstInput.fill("   ");
+  await firstInput.press("Enter");
+  await expect(children.getByRole("alert")).toContainText("Leerzeichen");
+  await expect(firstInput).toHaveValue("   ");
+  await expect(firstInput).toHaveAttribute("aria-invalid", "true");
+  await expect(dialog).toHaveCount(0);
+  await firstInput.fill(childTitle);
+  await firstInput.press("Enter");
+  await expect(firstInput).toHaveValue("");
+  await expect(firstInput).toBeFocused();
+  await expect(children.locator(".subtask-row")).toHaveCount(1);
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(progress).toHaveCount(0);
+  await firstInput.press("Escape");
+  await toggle.click();
   await item.locator(".task-content").click();
-  await dialog
-    .getByLabel("Neue Unteraufgabe", { exact: true })
-    .fill(childTitle);
-  await dialog.getByLabel("Neue Unteraufgabe", { exact: true }).press("Enter");
-  await expect(dialog.locator(".subtask-row")).toHaveCount(1);
   // The section is directly after the title, with no form nested in another form.
   const titleLabel = dialog.locator(":scope > label").first();
   expect(
@@ -50,8 +82,8 @@ export async function inlineSubtaskChecks(
   await toggle.press("Enter");
   await expect(children).toBeVisible();
   await expect(dialog).toHaveCount(0);
-  await progress.focus();
-  await progress.press("Space");
+  await expect(progress).toHaveCount(0);
+  await toggle.press("Space");
   await expect(children).toBeHidden();
   await expect(dialog).toHaveCount(0);
   await progress.press("Enter");
@@ -62,7 +94,7 @@ export async function inlineSubtaskChecks(
   await children
     .getByRole("button", { name: `${childTitle} erledigen`, exact: true })
     .press("Space");
-  await expect(progress).toHaveText("Alle 1 erledigt");
+  await expect(progress).toHaveCount(0);
   await expect(item.locator(".task-row > .check-hit")).toHaveAttribute(
     "aria-pressed",
     "false",
@@ -89,7 +121,7 @@ export async function inlineSubtaskChecks(
   await input.press("Enter");
   await expect(input).toHaveValue("");
   await expect(input).toBeFocused();
-  await expect(progress).toHaveText("1 von 2 erledigt");
+  await expect(progress).toHaveCount(0);
   await input.fill("Nicht anlegen");
   await input.press("Escape");
   await expect(input).toHaveCount(0);
@@ -110,7 +142,7 @@ export async function inlineSubtaskChecks(
     .click();
   await page.getByRole("button", { name: "Rückgängig", exact: true }).click();
   await expect(children).toBeVisible();
-  await expect(progress).toHaveText("1 von 2 erledigt");
+  await expect(progress).toHaveCount(0);
   await synced();
 
   // Multiple rows may stay expanded independently.
@@ -172,13 +204,8 @@ export async function inlineSubtaskChecks(
   );
   await expect(
     dialog.getByRole("textbox", { name: "Notizen", exact: true }),
-  ).toHaveValue(
-    "Noch ungespeicherte Notiz",
-    { timeout: 30000 },
-  );
-  await expect(remoteItem.locator(".task-progress")).toHaveText(
-    "Alle 1 erledigt",
-  );
+  ).toHaveValue("Noch ungespeicherte Notiz", { timeout: 30000 });
+  await expect(remoteItem.locator(".task-progress")).toHaveCount(0);
   await expect(remoteItem.locator(".subtask-toggle")).toHaveAttribute(
     "aria-expanded",
     "true",
@@ -193,7 +220,7 @@ export async function inlineSubtaskChecks(
   await input.fill("Schatz offline besorgen");
   await input.press("Enter");
   await expect(input).toHaveValue("");
-  await expect(progress).toHaveText("1 von 3 erledigt");
+  await expect(progress).toHaveCount(0);
   await input.press("Escape");
   await children
     .getByRole("button", {
@@ -201,7 +228,7 @@ export async function inlineSubtaskChecks(
       exact: true,
     })
     .click();
-  await expect(progress).toHaveText("2 von 3 erledigt");
+  await expect(progress).toHaveCount(0);
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await context.setOffline(false);
   await synced();
