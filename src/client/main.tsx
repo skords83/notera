@@ -197,6 +197,11 @@ function App() {
   const [theme, setTheme] = useState(
     localStorage.getItem("notera-theme") || "dark",
   );
+  const currentSelection = data.tasks.find((t) => t.id === selected);
+  const chosen = currentSelection || selectedSnapshot;
+  useEffect(() => {
+    if (currentSelection) setSelectedSnapshot(currentSelection);
+  }, [currentSelection?.id, currentSelection?.version]);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -216,11 +221,6 @@ function App() {
   const list = data.lists.find((l) => l.id === view);
   const target = list || inbox;
   const heading = list?.name || view;
-  const currentSelection = data.tasks.find((t) => t.id === selected);
-  const chosen = currentSelection || selectedSnapshot;
-  useEffect(() => {
-    if (currentSelection) setSelectedSnapshot(currentSelection);
-  }, [currentSelection?.id, currentSelection?.version]);
   const managed =
     data.lists.find((l) => l.id === manage) ||
     (() => {
