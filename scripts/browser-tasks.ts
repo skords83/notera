@@ -64,15 +64,18 @@ export async function addTaskWithStorageContention(page: Page, title: string) {
           released = true;
           return done;
         };
-        const hold = () => {
-          const request = transaction.objectStore("state").get("active");
-          request.onsuccess = () => {
-            resolve();
-            if (!released) hold();
-          };
-          request.onerror = () => reject(request.error);
+        // Object methods survive tsx serialization without its module-local __name helper.
+        const hold = {
+          next() {
+            const request = transaction.objectStore("state").get("active");
+            request.onsuccess = () => {
+              resolve();
+              if (!released) hold.next();
+            };
+            request.onerror = () => reject(request.error);
+          },
         };
-        hold();
+        hold.next();
       };
     });
   });
