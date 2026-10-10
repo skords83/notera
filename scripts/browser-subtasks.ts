@@ -43,14 +43,14 @@ export async function subtaskChecks(page: Page, context: BrowserContext) {
       exact: true,
     }),
   ).toBeFocused();
-  await expect(page.locator(".subtasks h3")).toContainText("1 von 3");
+  await expect(page.locator("dialog .subtasks h3")).toContainText("1 von 3");
   for (const theme of ["dark", "light"]) {
     await page.evaluate((t) => {
       document.documentElement.dataset.theme = t;
     }, theme);
     for (const width of [1360, 360, 320]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.locator(".subtasks").scrollIntoViewIfNeeded();
+      await page.locator("dialog .subtasks").scrollIntoViewIfNeeded();
       await page.screenshot({
         path: `test-results/subtasks-${theme}-${width}.png`,
         fullPage: true,
@@ -60,7 +60,9 @@ export async function subtaskChecks(page: Page, context: BrowserContext) {
           .locator("dialog")
           .evaluate((d) => d.scrollWidth <= d.clientWidth),
       ).toBe(true);
-      for (const button of await page.locator(".subtask-row > button").all()) {
+      for (const button of await page
+        .locator("dialog .subtask-row > button")
+        .all()) {
         const box = await button.boundingBox();
         expect(box!.width).toBeGreaterThanOrEqual(44);
         expect(box!.height).toBeGreaterThanOrEqual(44);
@@ -85,7 +87,7 @@ export async function subtaskChecks(page: Page, context: BrowserContext) {
     page.getByRole("button", { name: "Synchronisiert", exact: true }),
   ).toBeVisible();
   await page.getByText("Schatzsuche planen", { exact: true }).click();
-  await expect(page.locator(".subtasks h3")).toContainText("1 von 3");
+  await expect(page.locator("dialog .subtasks h3")).toContainText("1 von 3");
   await page
     .getByRole("button", {
       name: "Hinweise vorbereiten wieder öffnen",
@@ -95,7 +97,7 @@ export async function subtaskChecks(page: Page, context: BrowserContext) {
   await page
     .getByRole("button", { name: "Schatz besorgen entfernen", exact: true })
     .click();
-  await expect(page.locator(".subtasks h3")).toContainText("0 von 2");
+  await expect(page.locator("dialog .subtasks h3")).toContainText("0 von 2");
   await expect(input).toBeFocused();
   await page.getByRole("button", { name: "Schließen", exact: true }).click();
   await expect(

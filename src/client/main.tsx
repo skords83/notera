@@ -12,6 +12,8 @@ import React, {
 } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  CaretRightIcon,
+  CaretDownIcon,
   TrayIcon,
   SunIcon,
   CalendarDotsIcon,
@@ -47,7 +49,7 @@ import {
   formatCalendarDate,
   taskCount,
 } from "../shared/presentation";
-import { Subtasks } from "./Subtasks";
+import { Subtasks, subtaskProgress } from "./Subtasks";
 import { UndoToast } from "./UndoToast";
 import "./style.css";
 const views = [
@@ -167,6 +169,17 @@ function App() {
   const [query, setQuery] = useState("");
   const [title, setTitle] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(
+    () => new Set(),
+  );
+  function toggleSubtasks(id: string) {
+    setExpandedTasks((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
   const [showDone, setShowDone] = useState(false);
   const [modal, setModal] = useState<
     "list" | "settings" | "conflicts" | "login" | null
@@ -533,113 +546,157 @@ function App() {
                 {section && rows.length > 0 && (
                   <h2 className="group-title">{section}</h2>
                 )}
-                {rows.map((t) => (
-                  <div
-                    className={"task-row " + (t.done ? "done" : "")}
-                    key={t.id}
-                  >
-                    <button
-                      className="check-hit"
-                      aria-label={
-                        t.done
-                          ? `${t.title} wieder öffnen`
-                          : `${t.title} erledigen`
-                      }
-                      aria-pressed={t.done}
-                      disabled={t.deleted}
-                      onClick={() =>
-                        void act(async () => {
-                          if (
-                            !t.done &&
-                            data.subtasks?.some(
-                              (c) => c.taskId === t.id && !c.deleted && !c.done,
-                            )
-                          ) {
-                            setComplete(t);
-                            return;
-                          }
-                          const completionKey = await store.enqueue(
-                            "completion",
-                            t.id,
+                {rows.map((t) => {
+                  const children = (data.subtasks || []).filter(
+                    (c) => c.taskId === t.id && !c.deleted,
+                  );
+                  const expanded = expandedTasks.has(t.id);
+                  const regionId = `task-subtasks-${t.id}`;
+                  const toggleLabel = `Unteraufgaben von „${t.title}“ ${expanded ? "zuklappen" : "aufklappen"}`;
+                  return (
+                    <div className="task-item" key={t.id}>
+                      <div className={"task-row " + (t.done ? "done" : "")}>
+                        <button
+                          className="check-hit"
+                          aria-label={
                             t.done
-                              ? { action: "reopen" }
-                              : { action: "complete", openIds: [] },
-                          );
-                          setUndo({ id: t.id, done: t.done, completionKey });
-                        })
-                      }
-                    >
-                      <span className="check-circle">
-                        {t.done && <CheckIcon weight="bold" />}
-                      </span>
-                    </button>
-                    <button
-                      className="task-content"
-                      onClick={() => setSelected(t.id)}
-                    >
-                      <span>{t.title}</span>
-                      <small>
-                        {[
-                          data.lists.find((l) => l.id === t.listId)?.name,
-                          formatDue(t.due),
-                          data.subtasks?.some(
-                            (c) => c.taskId === t.id && !c.deleted,
-                          )
-                            ? `${data.subtasks.filter((c) => c.taskId === t.id && !c.deleted && c.done).length} von ${data.subtasks.filter((c) => c.taskId === t.id && !c.deleted).length}`
-                            : null,
-                          t.assignee
-                            ? data.users.find((u) => u.id === t.assignee)?.name
-                            : null,
-                          state.queue.some(
-                            (q) =>
-                              q.id === t.id ||
-                              (q.entity === "subtask" &&
-                                (q.base?.taskId === t.id ||
-                                  q.patch.taskId === t.id)),
-                          )
-                            ? "Ausstehend"
-                            : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </small>
-                    </button>
-                    {data.preferences[t.id]?.starred && (
-                      <StarIcon
-                        className="star"
-                        weight="fill"
-                        aria-label="Markiert"
-                      />
-                    )}
-                    {t.deleted && (
-                      <button
-                        aria-label={`${t.title} wiederherstellen`}
-                        onClick={() =>
-                          void act(() =>
-                            store.enqueue("task", t.id, { deleted: false }),
-                          )
-                        }
-                      >
-                        <ArrowClockwiseIcon />
-                      </button>
-                    )}
-                    {section === "Überfällig" && (
-                      <button
-                        title="Für heute ausblenden"
-                        aria-label={`${t.title} heute ausblenden`}
-                        onClick={() =>
-                          void act(() =>
-                            store.enqueue("preference", t.id, {
-                              hideOverdue: date,
-                            }),
-                          )
-                        }
-                      >
-                        <XIcon />
-                      </button>
-                    )}
-                  </div>
-                ))}
+                              ? `${t.title} wieder öffnen`
+                              : `${t.title} erledigen`
+                          }
+                          aria-pressed={t.done}
+                          disabled={t.deleted}
+                          onClick={() =>
+                            void act(async () => {
+                              if (
+                                !t.done &&
+                                data.subtasks?.some(
+                                  (c) =>
+                                    c.taskId === t.id && !c.deleted && !c.done,
+                                )
+                              ) {
+                                setComplete(t);
+                                return;
+                              }
+                              const completionKey = await store.enqueue(
+                                "completion",
+                                t.id,
+                                t.done
+                                  ? { action: "reopen" }
+                                  : { action: "complete", openIds: [] },
+                              );
+                              setUndo({
+                                id: t.id,
+                                done: t.done,
+                                completionKey,
+                              });
+                            })
+                          }
+                        >
+                          <span className="check-circle">
+                            {t.done && <CheckIcon weight="bold" />}
+                          </span>
+                        </button>
+                        <div className="task-summary">
+                          <button
+                            className="task-content"
+                            onClick={() => setSelected(t.id)}
+                          >
+                            <span>{t.title}</span>
+                            <small>
+                              {[
+                                data.lists.find((l) => l.id === t.listId)?.name,
+                                formatDue(t.due),
+                                t.assignee
+                                  ? data.users.find((u) => u.id === t.assignee)
+                                      ?.name
+                                  : null,
+                                state.queue.some(
+                                  (q) =>
+                                    q.id === t.id ||
+                                    (q.entity === "subtask" &&
+                                      (q.base?.taskId === t.id ||
+                                        q.patch.taskId === t.id)),
+                                )
+                                  ? "Ausstehend"
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </small>
+                          </button>
+                          {children.length > 0 && (
+                            <button
+                              className="task-progress"
+                              aria-expanded={expanded}
+                              aria-controls={regionId}
+                              aria-label={`${subtaskProgress(children.filter((c) => c.done).length, children.length)}. ${toggleLabel}`}
+                              onClick={() => toggleSubtasks(t.id)}
+                            >
+                              {subtaskProgress(
+                                children.filter((c) => c.done).length,
+                                children.length,
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        {data.preferences[t.id]?.starred && (
+                          <StarIcon
+                            className="star"
+                            weight="fill"
+                            aria-label="Markiert"
+                          />
+                        )}
+                        {t.deleted && (
+                          <button
+                            aria-label={`${t.title} wiederherstellen`}
+                            onClick={() =>
+                              void act(() =>
+                                store.enqueue("task", t.id, { deleted: false }),
+                              )
+                            }
+                          >
+                            <ArrowClockwiseIcon />
+                          </button>
+                        )}
+                        {section === "Überfällig" && (
+                          <button
+                            title="Für heute ausblenden"
+                            aria-label={`${t.title} heute ausblenden`}
+                            onClick={() =>
+                              void act(() =>
+                                store.enqueue("preference", t.id, {
+                                  hideOverdue: date,
+                                }),
+                              )
+                            }
+                          >
+                            <XIcon />
+                          </button>
+                        )}
+                        {children.length > 0 && (
+                          <button
+                            className="subtask-toggle"
+                            aria-label={toggleLabel}
+                            aria-expanded={expanded}
+                            aria-controls={regionId}
+                            onClick={() => toggleSubtasks(t.id)}
+                          >
+                            {expanded ? (
+                              <CaretDownIcon aria-hidden="true" />
+                            ) : (
+                              <CaretRightIcon aria-hidden="true" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      {children.length > 0 && (
+                        <div id={regionId} hidden={!expanded}>
+                          <Subtasks task={t} inline />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </section>
             );
           })}
@@ -1174,18 +1231,27 @@ function Details({ task: t, onClose }: { task: Task; onClose: () => void }) {
   }
   return (
     <Modal title="Aufgabe" panel onClose={close}>
-      <form onSubmit={save} onChange={() => setDirty(true)}>
-        <label>
-          Titel
-          <textarea
-            autoFocus
-            rows={2}
-            maxLength={TITLE_MAX}
-            required
-            value={draft.title}
-            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-          />
-        </label>
+      <label>
+        Titel
+        <textarea
+          autoFocus
+          rows={2}
+          maxLength={TITLE_MAX}
+          required
+          form="task-details-form"
+          value={draft.title}
+          onChange={(e) => {
+            setDirty(true);
+            setDraft({ ...draft, title: e.target.value });
+          }}
+        />
+      </label>
+      <Subtasks task={t} />
+      <form
+        id="task-details-form"
+        onSubmit={save}
+        onChange={() => setDirty(true)}
+      >
         <label>
           Notizen
           <textarea
@@ -1286,7 +1352,6 @@ function Details({ task: t, onClose }: { task: Task; onClose: () => void }) {
           Speichern
         </button>
       </form>
-      <Subtasks task={t} />
       <div className="personal-actions">
         <button
           onClick={() =>

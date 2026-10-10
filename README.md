@@ -160,3 +160,11 @@ Im Aufgabendetail unter **Unteraufgaben** einen Titel eingeben und Enter drücke
 **Upgrade:** Vorher sichern. Migration `003_subtasks.sql` läuft beim App-Start automatisch und transaktional unter PostgreSQL/PGlite; 001/002 bleiben unverändert. Neue JSON-Sicherungen nutzen `notera-2` und benötigen diese App-Version zum Restore. Alte `notera-1`-Sicherungen sind weiterhin importierbar und enthalten keine Unteraufgaben. Danach alle PWA-Tabs schließen und neu öffnen, damit der neue Service Worker aktiv wird. Alte Clients können Aufgaben mit offenen Schritten nicht ohne Bestätigung erledigen; ihre abgewiesene Änderung bleibt sichtbar.
 
 Der bestehende Containerablauf bleibt: nach Review/Merge und erfolgreichem Image-Build auf dem VPS sichern, `docker compose pull`, `docker compose up -d`, anschließend Healthcheck, Anmeldung und Synchronisation prüfen. Dieser Entwicklungsauftrag rollt nichts produktiv aus.
+
+### Unteraufgaben direkt in der Liste
+
+Pfeil oder Fortschritt („2 von 5 erledigt“, „Alle 5 erledigt“) klappen die Schritte unter einer Aufgabe auf. Mehrere Aufgaben können gleichzeitig offen bleiben; der lokale Aufklappzustand übersteht Abhaken und Synchronisation, wird aber nicht zwischen Personen geteilt und darf nach Neuladen zurückgesetzt sein. Der Haupttitel öffnet weiterhin die Details, die Hauptcheckbox behält ihre Bestätigungs-/Rückgängig-Regeln.
+
+Im aufgeklappten Bereich Schritte einzeln abhaken oder wieder öffnen. Erledigte bleiben durchgestrichen sichtbar. **+ Unteraufgabe** öffnet die Eingabe: Enter speichert und hält sie bereit, Escape verwirft den aktuellen Entwurf und setzt den Fokus zurück. Die erste Unteraufgabe einer Aufgabe ohne Schritte wird weiterhin im Detailpanel angelegt.
+
+Im Detailpanel steht der vollständige Abschnitt direkt nach dem Titel, einschließlich Bearbeiten/Entfernen und schmalem Fortschrittsbalken ohne Prozentzahl. Unteraufgaben werden sofort über die bestehende Offline-Queue gespeichert; die übrigen Detailfelder behalten ihre ungespeicherten Eingaben bis **Speichern**. Im Papierkorb sind Schritte nur lesbar. Diese Darstellungsänderung erfordert keine neue Migration, keine zusätzlichen Abhängigkeiten und keine geänderten VPS-Einstellungen.

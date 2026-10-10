@@ -159,3 +159,15 @@ Blockiert/offen:
 
 CI-Zwischenstand: [Lauf 38075164367](https://github.com/skords83/notera/actions/runs/38075164367) für Commit `3965df5` hat Tests, Build und sämtliche Browserregressionen erfolgreich abgeschlossen, einschließlich der Unteraufgaben-Screenshots/Überbreitenprüfungen in 1360/360/320 Pixeln und beiden Themes. Screenshots liegen im CI-Artefakt `browser-screenshots`; eine manuelle Sichtprüfung dieser Bilder wurde in dieser Umgebung nicht durchgeführt. Ergänzende Regressionen prüfen nun außerdem die Fokusrückgabe nach Escape/Entfernen, den ursprünglichen Erledigungszeitpunkt bei Undo und persistente 410-Konflikte nach endgültigem Löschen einer Hauptaufgabe. Lokale Tests und Build bestehen auch nach diesen Ergänzungen.
 Der gleiche CI-Lauf hat anschließend auch den Produktions-Container gebaut, App/PostgreSQL gestartet sowie den neuen PostgreSQL-Test für Upgrade bestehender Aufgaben, atomare Statusaktionen und JSON-Backup/Restore in eigenen temporären Datenbanken erfolgreich ausgeführt.
+
+## Aufklappbare Unteraufgaben – 10. Oktober 2026
+
+Basis: aktuelles `main` f42c4c0df1efb04299b3f115357a527786fc0a6d; Arbeitsdateien vollständig per GitHub-Blob-Hash abgeglichen, keine Abweichungen und kein AGENTS.md im Repository. Eigener Branch `feat/inline-subtasks`. Keine Änderungen an Schema, Backend, Speicherung, Queue, Konfliktlogik oder Abhängigkeiten.
+
+Implementiert: getrennte Aufklapp-/Fortschrittsbuttons in der Aufgabenliste; mehrere lokal offene Aufgaben; eingerückte Schritte mit Checkboxen, durchgestrichenen erledigten Titeln und Enter-/Escape-Eingabe; Unteraufgaben im Detailpanel direkt nach dem Titel samt schmalem Balken. Eindeutige ARIA-Zuordnungen, 44-Pixel-Touchziele, Zeilenumbruch und Fokusführung. Detailentwürfe und Papierkorbrechte bleiben erhalten.
+
+Lokal: `npm test` erfolgreich (sechs Testdateien), `npm run build` erfolgreich (TypeScript/Vite/Service Worker; bestehende Bundlegrößenwarnung). `npm run test:browser` gestartet, aber Testserver durch `listen EPERM` auf 127.0.0.1:3217 blockiert. Ausschließlich isolierte Testdaten.
+
+Neue Browserregressionen im unveränderten Actions-/Container-Workflow: Auf-/Zuklappen per Pfeil/Fortschritt/Tastatur ohne Detailöffnung, getrennte Haupt-/Kindcheckboxen und Undo, sofortige Fortschrittswerte, Eingabe/Leerzeichenfehler/Escape, mehrere offene Aufgaben, Zustandserhalt nach Sync, zwei Browserkontexte und ungespeicherte Notizen/Links, Offlineanlage/Abgleich, Papierkorb/Restore. Screenshots und Überbreiten-/Touchflächenprüfungen für Desktop/360/320 in Hell/Dunkel sowie Detailposition/Balken. CI-Ergebnis wird am PR dokumentiert.
+
+Offen: manuelle Sichtprüfung der Screenshots, Screenreader und echtes Android-Gerät. Kein Merge, keine produktive Veröffentlichung oder VPS-Änderung. Keine zusätzlichen Upgrade-Schritte gegenüber Schema 003; nach regulärem Image-Update PWA-Tabs neu öffnen.

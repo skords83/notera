@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type FormEvent } from "react";
+import { useState, useRef, useEffect, useId, type FormEvent } from "react";
 import { CheckIcon, TrashIcon } from "@phosphor-icons/react";
 import { TITLE_MAX, type Task, type Subtask } from "../shared/model";
 import * as store from "./store";
@@ -8,11 +8,13 @@ function SubtaskRow({
   disabled,
   report,
   onRemoved,
+  compact = false,
 }: {
   child: Subtask;
   disabled: boolean;
   report: (error: string) => void;
   onRemoved: () => void;
+  compact?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(child.title);
@@ -52,7 +54,11 @@ function SubtaskRow({
           {child.done && <CheckIcon weight="bold" />}
         </span>
       </button>
-      {editing ? (
+      {compact ? (
+        <span className={"subtask-title " + (child.done ? "completed" : "")}>
+          {child.title}
+        </span>
+      ) : editing ? (
         <form
           className="subtask-edit"
           onSubmit={(e) => {
@@ -96,20 +102,44 @@ function SubtaskRow({
           {child.title}
         </button>
       )}
-      <button
-        disabled={disabled}
-        aria-label={`${child.title} entfernen`}
-        onClick={() => void change({ deleted: true })}
-      >
-        <TrashIcon />
-      </button>
+      {!compact && (
+        <button
+          disabled={disabled}
+          aria-label={`${child.title} entfernen`}
+          onClick={() => void change({ deleted: true })}
+        >
+          <TrashIcon />
+        </button>
+      )}
     </li>
   );
 }
-export function Subtasks({ task }: { task: Task }) {
+export function subtaskProgress(done: number, total: number) {
+  return done === total
+    ? `Alle ${total} erledigt`
+    : `${done} von ${total} erledigt`;
+}
+
+export function Subtasks({
+  task,
+  inline = false,
+}: {
+  task: Task;
+  inline?: boolean;
+}) {
   const children = (store.projected().subtasks || []).filter(
     (c) => c.taskId === task.id && !c.deleted,
   );
+  const id = useId();
+  const [adding, setAdding] = useState(!inline);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const focusAddButton = useRef(false);
+  useEffect(() => {
+    if (!adding && focusAddButton.current) {
+      addButton.current?.focus();
+      focusAddButton.current = false;
+    }
+  }, [adding]);
   const [title, setTitle] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -133,47 +163,103 @@ export function Subtasks({ task }: { task: Task }) {
     }
   }
   return (
-    <section className="subtasks" aria-labelledby="subtasks-heading">
-      <h3 id="subtasks-heading">
-        Unteraufgaben{" "}
-        {children.length > 0 && (
-          <small>
-            {children.filter((c) => c.done).length} von {children.length}
-          </small>
-        )}
-      </h3>
+    <section
+      className={inline ? "subtasks inline-subtasks" : "subtasks"}
+      aria-label={inline ? `Unteraufgaben von ${task.title}` : undefined}
+      aria-labelledby={inline ? undefined : `${id}-heading`}
+    >
+      {!inline && (
+        <>
+          <h3 id={`${id}-heading`}>
+            Unteraufgaben{" "}
+            {children.length > 0 && (
+              <small>
+                {subtaskProgress(
+                  children.filter((c) => c.done).length,
+                  children.length,
+                )}
+              </small>
+            )}
+          </h3>
+          {children.length > 0 && (
+            <div
+              className="subtask-progress-bar"
+              role="progressbar"
+              aria-label="Erledigte Unteraufgaben"
+              aria-valuemin={0}
+              aria-valuemax={children.length}
+              aria-valuenow={children.filter((c) => c.done).length}
+              aria-valuetext={subtaskProgress(
+                children.filter((c) => c.done).length,
+                children.length,
+              )}
+            >
+              <span
+                style={{
+                  width: `${(children.filter((c) => c.done).length / children.length) * 100}%`,
+                }}
+              />
+            </div>
+          )}
+        </>
+      )}
       <ul>
         {children.map((child) => (
           <SubtaskRow
             key={child.id}
             child={child}
+            compact={inline}
             disabled={task.deleted}
             report={setError}
             onRemoved={() => input.current?.focus()}
           />
         ))}
       </ul>
-      <form onSubmit={add} className="subtask-add">
-        <label htmlFor="subtask-new">Neue Unteraufgabe</label>
-        <div>
-          <input
-            id="subtask-new"
-            ref={input}
-            readOnly={busy}
-            disabled={task.deleted}
-            maxLength={TITLE_MAX}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            aria-describedby={error ? "subtask-error" : undefined}
-            placeholder="Nächster Schritt …"
-          />
-          <button disabled={busy || task.deleted} type="submit">
-            Hinzufügen
+      {adding ? (
+        <form onSubmit={add} className="subtask-add">
+          <label htmlFor={`${id}-new`}>Neue Unteraufgabe</label>
+          <div>
+            <input
+              id={`${id}-new`}
+              autoFocus={inline}
+              ref={input}
+              readOnly={busy}
+              disabled={task.deleted}
+              maxLength={TITLE_MAX}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              aria-describedby={error ? `${id}-error` : undefined}
+              aria-invalid={!!error}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && inline && !busy) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setTitle("");
+                  setError("");
+                  focusAddButton.current = true;
+                  setAdding(false);
+                }
+              }}
+              placeholder="Nächster Schritt …"
+            />
+            <button disabled={busy || task.deleted} type="submit">
+              Hinzufügen
+            </button>
+          </div>
+        </form>
+      ) : (
+        !task.deleted && (
+          <button
+            className="subtask-add-trigger"
+            ref={addButton}
+            onClick={() => setAdding(true)}
+          >
+            + Unteraufgabe
           </button>
-        </div>
-      </form>
+        )
+      )}
       {error && (
-        <p id="subtask-error" role="alert" className="error">
+        <p id={`${id}-error`} role="alert" className="error">
           {error}
         </p>
       )}
