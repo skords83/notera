@@ -731,6 +731,12 @@ function App() {
                             task={t}
                             inline
                             addRequest={addRequests[t.id]}
+                            onAddStarted={() =>
+                              setAddRequests((previous) => ({
+                                ...previous,
+                                [t.id]: 0,
+                              }))
+                            }
                             onCancelEmpty={() => {
                               setExpandedTasks((previous) => {
                                 const next = new Set(previous);

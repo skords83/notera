@@ -124,11 +124,13 @@ export function Subtasks({
   task,
   inline = false,
   addRequest = 0,
+  onAddStarted,
   onCancelEmpty,
 }: {
   task: Task;
   inline?: boolean;
   addRequest?: number;
+  onAddStarted?: () => void;
   onCancelEmpty?: () => void;
 }) {
   const children = (store.projected().subtasks || []).filter(
@@ -152,8 +154,9 @@ export function Subtasks({
     if (addRequest) {
       setAdding(true);
       input.current?.focus();
+      onAddStarted?.();
     }
-  }, [addRequest]);
+  }, [addRequest, onAddStarted]);
   async function add(e: FormEvent) {
     e.preventDefault();
     if (busy) return;
