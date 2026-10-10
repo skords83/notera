@@ -804,3 +804,66 @@ dialog .login {
     0 0 0 2px var(--bg),
     0 0 0 3px var(--list-paint);
 }
+
+.subtasks {
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+  padding-top: 12px;
+}
+.subtasks h3 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: baseline;
+}
+.subtasks h3 small {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+.subtasks ul {
+  padding: 0;
+  list-style: none;
+}
+.subtask-row {
+  display: flex;
+  align-items: start;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  padding: 4px 0;
+}
+.subtask-row > button {
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+}
+.subtask-row .subtask-title {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+  padding: 10px 4px;
+}
+.subtask-title.completed {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.subtask-edit {
+  flex: 1;
+  min-width: 0;
+}
+.subtask-edit .actions {
+  flex-wrap: wrap;
+}
+.subtask-add > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.subtask-add input {
+  flex: 1;
+  min-width: 120px;
+}
+.subtask-add button {
+  min-height: 44px;
+}

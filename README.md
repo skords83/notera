@@ -2,7 +2,7 @@
 
 Selbst gehostete Aufgaben-App für zwei Personen. React/Vite-PWA, Fastify-API und PostgreSQL. Darkmode, optional Hell- und Systemmodus. Der Entwicklungsauftrag und die unveränderte Designreferenz liegen unter [`docs/reference/`](docs/reference/).
 
-**Stand: Stufe A implementiert, Abnahme noch nicht vollständig.** Automatisierte Domänen-, API- und Offline-Queue-Tests bestehen. Browser-/Android-Prüfungen bleiben offen. Docker-Build, Compose-Start mit PostgreSQL und Kontopersistenz nach Containerneustart wurden inzwischen in GitHub Actions erfolgreich geprüft. Listenfarben sind als gesondert beauftragte Erweiterung umgesetzt; weitere Funktionen aus Stufe B sind nicht enthalten. Details: [Prüfbericht](docs/STATUS.md).
+**Stand: Stufe A implementiert, Abnahme noch nicht vollständig.** Automatisierte Domänen-, API- und Offline-Queue-Tests bestehen. Browser-/Android-Prüfungen bleiben offen. Docker-Build, Compose-Start mit PostgreSQL und Kontopersistenz nach Containerneustart wurden inzwischen in GitHub Actions erfolgreich geprüft. Listenfarben und Unteraufgaben sind als gesondert beauftragte Erweiterungen umgesetzt; weitere Funktionen aus Stufe B sind nicht enthalten. Details: [Prüfbericht](docs/STATUS.md).
 
 ## Lokal starten
 
@@ -85,7 +85,7 @@ DATA_DIR=.data/restored npm run restore -- backups/notera.json
 DATA_DIR=.data/restored npm start
 ```
 
-Die Sicherungsdatei wird exklusiv neu angelegt (Unix-Modus 0600). Die Wiederherstellung verweigert eine Datenbank mit bestehenden Benutzern. Alle Tabellen werden in einer Transaktion gesichert bzw. wiederhergestellt. Nach Restore neu anmelden. Listenfarben sind im bestehenden JSON-Format enthalten; ältere Sicherungen ohne Farbspalte erhalten `auto`. Neue Sicherungen benötigen zum Restore mindestens Schema 002.
+Die Sicherungsdatei wird exklusiv neu angelegt (Unix-Modus 0600). Die Wiederherstellung verweigert eine Datenbank mit bestehenden Benutzern. Alle Tabellen werden in einer Transaktion gesichert bzw. wiederhergestellt. Nach Restore neu anmelden. Listenfarben sind im bestehenden JSON-Format enthalten; ältere Sicherungen ohne Farbspalte erhalten `auto`. Neue Sicherungen nutzen `notera-2` und benötigen zum Restore mindestens Schema 003.
 
 Compose:
 
@@ -145,3 +145,18 @@ Vor dem ersten Browserlauf `npx playwright install --with-deps chromium` ausfüh
 Weitere technische Entscheidungen und API-Verhalten: [Architektur](docs/ARCHITECTURE.md).
 
 Der bestehende GitHub-Workflow führt auch Browser-Regressionstests mit temporären Testkonten aus und stellt die Aufnahmen als `browser-screenshots`-Artefakt bereit. Für PRs laufen Tests und Container-Build; der Veröffentlichungsjob bleibt gesperrt.
+
+## Unteraufgaben (Schema 003)
+
+Im Aufgabendetail unter **Unteraufgaben** einen Titel eingeben und Enter drücken. Das Feld bleibt für den nächsten Schritt bereit. Titel anklicken zum Bearbeiten; Enter übernimmt, Escape verwirft die Bearbeitung. Titel werden getrimmt und sind wie Hauptaufgaben auf 240 UTF-16-Codeeinheiten begrenzt. Schritte bleiben in Erstellungsreihenfolge, ohne eigene Termine, Markierungen oder weitere Ebenen. In der Aufgabenliste steht beispielsweise „2 von 5“.
+
+- Alle Schritte abzuhaken erledigt die Hauptaufgabe nicht automatisch.
+- Bei offenen Schritten fragt das Erledigen mit deren Anzahl nach **Alles erledigen** oder **Abbrechen**. Die bestätigten Schritte und die Hauptaufgabe werden gemeinsam transaktional erledigt.
+- Wiederöffnen der Hauptaufgabe lässt die Schritte unverändert. Ein neuer oder wieder geöffneter Schritt öffnet eine erledigte Hauptaufgabe wieder.
+- **Rückgängig** stellt die von dieser Aktion geänderten Statuswerte und den Erledigungszeitpunkt atomar wieder her. Zwischenzeitliche Statusänderungen führen zu einem sichtbaren Konflikt statt zum Überschreiben anderer Arbeit.
+- Listenmitglieder bearbeiten Schritte gemeinsam. Verschieben, Papierkorb und Wiederherstellung betreffen stets die gesamte Aufgabe; endgültiges Löschen entfernt auch ihre Schritte.
+- Offline funktioniert auch „neue Hauptaufgabe → sofort Schritte hinzufügen“. Einzelne Schritte haben eigene Versionen. Abgelehnte Änderungen bleiben in der Queue sichtbar; Rechteentzug entfernt nach dem Serverabgleich die betroffenen lokalen Daten entsprechend den bestehenden Regeln.
+
+**Upgrade:** Vorher sichern. Migration `003_subtasks.sql` läuft beim App-Start automatisch und transaktional unter PostgreSQL/PGlite; 001/002 bleiben unverändert. Neue JSON-Sicherungen nutzen `notera-2` und benötigen diese App-Version zum Restore. Alte `notera-1`-Sicherungen sind weiterhin importierbar und enthalten keine Unteraufgaben. Danach alle PWA-Tabs schließen und neu öffnen, damit der neue Service Worker aktiv wird. Alte Clients können Aufgaben mit offenen Schritten nicht ohne Bestätigung erledigen; ihre abgewiesene Änderung bleibt sichtbar.
+
+Der bestehende Containerablauf bleibt: nach Review/Merge und erfolgreichem Image-Build auf dem VPS sichern, `docker compose pull`, `docker compose up -d`, anschließend Healthcheck, Anmeldung und Synchronisation prüfen. Dieser Entwicklungsauftrag rollt nichts produktiv aus.

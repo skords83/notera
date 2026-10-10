@@ -61,6 +61,8 @@ jobs:
           docker compose exec -T db psql -U notera -d notera -v ON_ERROR_STOP=1 -c "INSERT INTO lists(id,owner_id,name,color) SELECT '10000000-0000-4000-8000-000000000001',id,'CI list color','teal' FROM users WHERE username='ci-user'"
           docker compose exec -T db psql -U notera -d notera -tAc "SELECT color FROM lists WHERE inbox" | grep -qx 'auto'
           docker compose exec -T db psql -U notera -d notera -tAc "SELECT version FROM schema_migrations WHERE version=2" | grep -qx '2'
+      - name: Check PostgreSQL subtask upgrade and backup restore in isolated databases
+        run: docker compose exec -T -e NOTERA_CI_POSTGRES_CHECK=1 app node --import tsx scripts/postgres-subtasks.ts
       - name: Check persistence after restart
         run: |
           docker compose restart db app

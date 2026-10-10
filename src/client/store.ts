@@ -1,5 +1,10 @@
 import { openDB } from "idb";
-import { listPatch, listName } from "../shared/model";
+import {
+  listPatch,
+  listName,
+  subtaskPatch,
+  completionPatch,
+} from "../shared/model";
 import type {
   Mutation,
   Snapshot,
@@ -19,6 +24,7 @@ export type Local = {
   snapshot: Snapshot;
   queue: Pending[];
   device: string;
+  completions?: Record<string, any>;
 };
 const empty: Snapshot = {
   cursor: 0,
@@ -155,9 +161,52 @@ export async function logout() {
 }
 export function projected(): Snapshot {
   const result = structuredClone(state.snapshot);
+  result.subtasks ||= [];
   for (const m of state.queue) {
     if (m.status === 403 && !(m.entity === "list" && m.version === 0)) continue;
-    if (m.entity === "task") {
+    if (m.entity === "subtask") {
+      let child = result.subtasks.find((c) => c.id === m.id);
+      const isNew = !child;
+      if (!child) {
+        child = {
+          id: m.id,
+          taskId: String(m.patch.taskId || m.base?.taskId || ""),
+          title: "",
+          done: false,
+          deleted: false,
+          version: 0,
+          createdAt: String(m.base?.createdAt || ""),
+        };
+        result.subtasks.push(child);
+      }
+      Object.assign(child, m.patch);
+      const parent = result.tasks.find((t) => t.id === child.taskId);
+      if (parent && !child.deleted && (isNew || m.patch.done === false)) {
+        parent.done = false;
+        parent.completedAt = null;
+      }
+    } else if (m.entity === "completion") {
+      const parent = result.tasks.find((t) => t.id === m.id);
+      if (!parent) continue;
+      if (m.patch.action === "complete") {
+        parent.done = true;
+        for (const c of result.subtasks)
+          if ((m.patch.openIds as string[]).includes(c.id)) c.done = true;
+      } else if (m.patch.action === "reopen") {
+        parent.done = false;
+        parent.completedAt = null;
+      } else {
+        const before = m.base?.undoState as any;
+        if (before) {
+          parent.done = before.done;
+          parent.completedAt = before.completedAt;
+          for (const c of result.subtasks) {
+            const prev = before.subtasks.find((v: any) => v.id === c.id);
+            if (prev) c.done = prev.done;
+          }
+        }
+      }
+    } else if (m.entity === "task") {
       let t = result.tasks.find((t) => t.id === m.id);
       if (!t) {
         t = {
@@ -220,41 +269,70 @@ export async function enqueue(
     if (!parsed.success) throw new Error(parsed.error.issues[0].message);
     patch = parsed.data;
   }
+  if (entity === "subtask" || entity === "completion") {
+    const parsed = (
+      entity === "subtask" ? subtaskPatch : completionPatch
+    ).safeParse(patch);
+    if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+    patch = parsed.data;
+  }
   const accountId = state.user.id;
   const snap = projected();
   const v =
     version ??
-    (entity === "task"
+    (entity === "task" || entity === "completion"
       ? snap.tasks.find((t) => t.id === id)?.version
-      : entity === "list"
-        ? snap.lists.find((t) => t.id === id)?.version
-        : snap.preferences[id]?.version) ??
+      : entity === "subtask"
+        ? snap.subtasks?.find((c) => c.id === id)?.version
+        : entity === "list"
+          ? snap.lists.find((t) => t.id === id)?.version
+          : snap.preferences[id]?.version) ??
     0;
+  const key = crypto.randomUUID();
   await update((s) => {
     if (s.user?.id !== accountId)
       throw new Error(
         "Konto wurde in einem anderen Tab gewechselt. Bitte neu laden.",
       );
     const object =
-      entity === "task"
+      entity === "task" || entity === "completion"
         ? snap.tasks.find((t) => t.id === id)
-        : entity === "list"
-          ? snap.lists.find((l) => l.id === id)
-          : snap.preferences[id];
+        : entity === "subtask"
+          ? snap.subtasks?.find((c) => c.id === id)
+          : entity === "list"
+            ? snap.lists.find((l) => l.id === id)
+            : snap.preferences[id];
     s.queue.push({
       entity,
       id,
       patch,
       version: v,
-      key: crypto.randomUUID(),
+      key,
       device: s.device,
-      base: object ? { ...object } : {},
+      base: {
+        ...(object || {}),
+        ...(entity === "completion"
+          ? {
+              subtasks: (snap.subtasks || []).filter(
+                (c) => c.taskId === id && !c.deleted && !c.done,
+              ),
+              ...(patch.action === "undo"
+                ? {
+                    undoState:
+                      s.completions?.[String(patch.key)] ||
+                      s.queue.find((q) => q.key === patch.key)?.base,
+                  }
+                : {}),
+            }
+          : {}),
+      },
     });
     return s;
   });
   syncStatus = navigator.onLine ? "Änderungen ausstehend" : "Offline";
   emit();
   void sync();
+  return key;
 }
 function connect() {
   if (events || !state.user) return;
@@ -294,6 +372,15 @@ async function pull() {
         if (typeof listId === "string") oldTasks.set(m.id, { listId } as Task);
       }
     }
+    const parents = new Map(
+      (s.snapshot.subtasks || []).map((c) => [c.id, c.taskId]),
+    );
+    for (const m of s.queue)
+      if (m.entity === "subtask")
+        parents.set(
+          m.id,
+          String(m.base?.taskId || m.patch.taskId || parents.get(m.id) || ""),
+        );
     let revoked = 0;
     s.queue = s.queue.filter((m) => {
       const list =
@@ -301,7 +388,8 @@ async function pull() {
           ? m.id
           : m.entity === "task"
             ? oldTasks.get(m.id)?.listId || String(m.patch.listId || "")
-            : oldTasks.get(m.id)?.listId;
+            : oldTasks.get(m.entity === "subtask" ? parents.get(m.id)! : m.id)
+                ?.listId;
       const keep = !list || allowed.has(list) || locallyCreatedLists.has(list);
       if (!keep) revoked++;
       return keep;
@@ -342,13 +430,41 @@ export async function sync() {
           blocked.add(obj);
           continue;
         }
+        const parentId =
+          m.entity === "subtask"
+            ? String(m.base?.taskId || m.patch.taskId || "")
+            : m.id;
+        if (
+          (m.entity === "subtask" || m.entity === "completion") &&
+          state.queue.some(
+            (q) =>
+              q.entity === "task" &&
+              q.id === parentId &&
+              (q.version === 0 || q.error),
+          )
+        )
+          continue;
+        if (
+          m.entity === "completion" &&
+          (state.queue
+            .slice(0, state.queue.indexOf(m))
+            .some(
+              (q) =>
+                q.entity === "subtask" &&
+                (q.base?.taskId === m.id || q.patch.taskId === m.id),
+            ) ||
+            (m.patch.action === "undo" &&
+              state.queue.some((q) => q.key === m.patch.key)))
+        )
+          continue;
         const pendingList = state.queue.find(
           (q) =>
             q.entity === "list" &&
             q.version === 0 &&
             (q.id === m.patch.listId ||
               q.id === m.base?.listId ||
-              q.id === projected().tasks.find((t) => t.id === m.id)?.listId),
+              q.id ===
+                projected().tasks.find((t) => t.id === parentId)?.listId),
         );
         if (m.entity !== "list" && pendingList) continue;
         try {
@@ -362,21 +478,54 @@ export async function sync() {
           await update((s) => {
             if (acknowledged.userId !== s.user?.id) return s;
             s.snapshot = acknowledged;
+            if (result.before) {
+              s.completions ||= {};
+              s.completions[m.key] = result.before;
+            }
             s.queue = s.queue.filter((q) => q.key !== m.key);
-            const next = s.queue.find(
-              (q) => q.entity === m.entity && q.id === m.id,
-            );
-            if (next && !next.error) {
+            const affected: { entity: Mutation["entity"]; id: string }[] = [
+              {
+                entity: m.entity === "completion" ? "task" : m.entity,
+                id: m.id,
+              },
+            ];
+            if (m.entity === "subtask")
+              affected.push({ entity: "task", id: parentId });
+            if (m.entity === "completion") {
+              const ids =
+                m.patch.action === "complete"
+                  ? (m.patch.openIds as string[])
+                  : ((m.base?.undoState as any)?.subtasks || []).map(
+                      (c: any) => c.id,
+                    );
+              for (const id of ids) affected.push({ entity: "subtask", id });
+            }
+            for (const item of affected) {
+              const next = s.queue.find(
+                (q) =>
+                  q.id === item.id &&
+                  (q.entity === item.entity ||
+                    (item.entity === "task" && q.entity === "completion")),
+              );
+              if (!next || next.error) continue;
               const current: any =
-                m.entity === "task"
-                  ? acknowledged.tasks.find((t) => t.id === m.id)
-                  : m.entity === "list"
-                    ? acknowledged.lists.find((l) => l.id === m.id)
-                    : acknowledged.preferences[m.id];
+                item.entity === "task"
+                  ? acknowledged.tasks.find((t) => t.id === item.id)
+                  : item.entity === "subtask"
+                    ? acknowledged.subtasks?.find((c) => c.id === item.id)
+                    : item.entity === "list"
+                      ? acknowledged.lists.find((l) => l.id === item.id)
+                      : acknowledged.preferences[item.id];
               const keys = [
                 ...new Set([
-                  ...Object.keys(next.patch),
-                  ...(m.entity === "task" ? ["listId", "deleted"] : []),
+                  ...(next.entity === "completion"
+                    ? ["done"]
+                    : Object.keys(next.patch)),
+                  ...(item.entity === "task"
+                    ? ["listId", "deleted"]
+                    : item.entity === "subtask"
+                      ? ["taskId", "deleted"]
+                      : []),
                 ]),
               ];
               const changed = keys.filter(
@@ -387,16 +536,16 @@ export async function sync() {
                   JSON.stringify(next.patch[k]) !==
                     JSON.stringify(current?.[k]),
               );
-              if (changed.length) {
+              if (changed.length || !current) {
                 next.error =
                   "Zwischenzeitliche Änderung an einem nachfolgenden Offline-Schritt.";
                 next.status = 409;
                 next.detail = {
                   current,
                   fields: changed,
-                  version: result.version,
+                  version: current?.version,
                 };
-              } else next.version = result.version;
+              } else next.version = current.version;
             }
             return s;
           });
@@ -474,8 +623,25 @@ export async function discard(key: string) {
           )
           .map((m) => m.id),
       );
-      s.queue = s.queue.filter((m) => m.id !== rejected.id && !tasks.has(m.id));
-    } else s.queue = s.queue.filter((m) => m.key !== key);
+      s.queue = s.queue.filter(
+        (m) =>
+          m.id !== rejected.id &&
+          !tasks.has(m.id) &&
+          !(
+            m.entity === "subtask" &&
+            tasks.has(String(m.base?.taskId || m.patch.taskId))
+          ),
+      );
+    } else
+      s.queue = s.queue.filter(
+        (m) =>
+          m.key !== key &&
+          !(
+            m.entity === "completion" &&
+            m.patch.action === "undo" &&
+            m.patch.key === key
+          ),
+      );
     return s;
   });
   await sync();
@@ -513,12 +679,22 @@ export async function resolveConflict(key: string, restore = false) {
   const m = state.queue.find((q) => q.key === key);
   if (!m) return;
   const snapshot = state.snapshot;
-  const version =
-    m.entity === "task"
+  let version =
+    m.entity === "task" || m.entity === "completion"
       ? snapshot.tasks.find((t) => t.id === m.id)?.version
-      : m.entity === "list"
-        ? snapshot.lists.find((l) => l.id === m.id)?.version
-        : snapshot.preferences[m.id]?.version;
+      : m.entity === "subtask"
+        ? snapshot.subtasks?.find((c) => c.id === m.id && !c.deleted)?.version
+        : m.entity === "list"
+          ? snapshot.lists.find((l) => l.id === m.id)?.version
+          : snapshot.preferences[m.id]?.version;
+  if (
+    m.entity === "subtask" &&
+    m.version === 0 &&
+    version === undefined &&
+    !snapshot.subtasks?.some((c) => c.id === m.id) &&
+    snapshot.tasks.some((t) => t.id === m.patch.taskId && !t.deleted)
+  )
+    version = 0;
   if (version === undefined)
     throw new Error(
       "Objekt nicht mehr vorhanden. Lokalen Text kopieren und bei Bedarf eine neue Aufgabe anlegen.",
@@ -531,6 +707,18 @@ export async function resolveConflict(key: string, restore = false) {
   )
     throw new Error(
       "Aufgabe zuerst im Papierkorb ausdrücklich wiederherstellen oder Text als neue Aufgabe sichern.",
+    );
+  if (
+    m.entity === "subtask" &&
+    snapshot.tasks.find((t) => t.id === (m.base?.taskId || m.patch.taskId))
+      ?.deleted
+  )
+    throw new Error(
+      "Hauptaufgabe zuerst im Papierkorb ausdrücklich wiederherstellen.",
+    );
+  if (m.entity === "completion")
+    throw new Error(
+      "Bitte diese Aktion verwerfen und an der Hauptaufgabe erneut bestätigen. Rückgängig-Konflikte erfordern eine bewusste manuelle Statusänderung.",
     );
   await update((s) => {
     const p = s.queue.find((q) => q.key === key)!;

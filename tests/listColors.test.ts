@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mutate } from "../src/server/domain";
 import { Database } from "../src/server/db";
 import { createUser } from "../src/server/auth";
-import { backup, restore } from "../src/server/backup";
+import { backup, restore, tables } from "../src/server/backup";
 import {
   listColorStyle,
   normalizeListColor,
@@ -35,9 +37,38 @@ test("migration upgrades existing lists and restores old/new backups including c
       .split(";")
       .filter((s) => s.trim()))
       await db.query(sql);
-    await createUser(db, "old", "Alt", "test-password-old-123");
-    const old = await backup(db);
+    const user = await createUser(db, "old", "Alt", "test-password-old-123");
+    const taskId = randomUUID();
+    await mutate(db, user, {
+      key: randomUUID(),
+      device: randomUUID(),
+      entity: "task",
+      id: taskId,
+      version: 0,
+      patch: {
+        title: "Bestehende Aufgabe",
+        listId: (await db.query("SELECT id FROM lists")).rows[0].id,
+      },
+    });
+    const oldTask = (
+      await db.query("SELECT * FROM tasks WHERE id=$1", [taskId])
+    ).rows[0];
+    const old = {
+      format: "notera-1",
+      tables: Object.fromEntries(
+        await Promise.all(
+          tables
+            .filter((t) => t !== "subtasks")
+            .map(async (t) => [t, (await db.query(`SELECT * FROM ${t}`)).rows]),
+        ),
+      ),
+    };
     await db.migrate();
+    assert.deepEqual(
+      (await db.query("SELECT * FROM tasks WHERE id=$1", [taskId])).rows[0],
+      oldTask,
+    );
+    assert.equal((await db.query("SELECT * FROM subtasks")).rows.length, 0);
     assert.equal(
       (await db.query("SELECT color FROM lists")).rows[0].color,
       "auto",
