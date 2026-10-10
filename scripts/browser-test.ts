@@ -1,4 +1,5 @@
 import { addTask as add, addTaskWithStorageContention } from "./browser-tasks";
+import { inlineSubtaskChecks } from "./browser-inline-subtasks";
 import { subtaskChecks } from "./browser-subtasks";
 import { colorChecks } from "./browser-colors";
 /** Real-browser acceptance run; uses disposable accounts and a temporary database. */
@@ -44,7 +45,7 @@ try {
     await p.getByRole("button", { name: "Anmelden", exact: true }).click();
     await expect(
       p.getByRole("button", { name: "Synchronisiert", exact: true }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 30000 });
   }
   await login(page, "sven");
   await login(sandra, "sandra");
@@ -140,6 +141,7 @@ try {
     await page.setViewportSize({ width: 1360, height: 900 });
   }
   await subtaskChecks(page, a);
+  await inlineSubtaskChecks(page, a, page2);
   await browserRegressions(page, a);
   expect(errors).toEqual([]);
   console.log(

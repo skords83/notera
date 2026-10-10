@@ -354,11 +354,13 @@ main {
   color: var(--muted);
   margin: 24px 0 6px;
 }
+.task-item {
+  border-bottom: 1px solid var(--line);
+}
 .task-row {
   display: flex;
   align-items: flex-start;
   gap: 4px;
-  border-bottom: 1px solid var(--line);
   padding: 11px 0;
 }
 .check-hit {
@@ -373,7 +375,7 @@ main {
   place-items: center;
   border-radius: 50%;
 }
-.done .check-circle {
+.check-hit[aria-pressed="true"] .check-circle {
   background: var(--blue);
   border-color: var(--blue);
   color: var(--button-text);
@@ -866,4 +868,75 @@ dialog .login {
 }
 .subtask-add button {
   min-height: 44px;
+}
+
+.task-summary {
+  flex: 1;
+  min-width: 0;
+}
+.task-summary .task-content {
+  width: 100%;
+}
+.task-progress {
+  display: block;
+  min-height: 44px;
+  padding: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.subtask-toggle {
+  flex: 0 0 44px;
+  min-width: 44px;
+  min-height: 44px;
+  color: var(--muted);
+  padding: 12px;
+}
+.subtask-toggle:active,
+.task-progress:active,
+.subtask-add-trigger:active {
+  transform: scale(0.97);
+}
+.inline-subtasks {
+  border: 0;
+  margin: 0 0 12px 44px;
+  padding: 0;
+}
+.inline-subtasks ul {
+  margin: 0;
+}
+.inline-subtasks .subtask-row {
+  border: 0;
+  padding: 0;
+}
+.inline-subtasks .subtask-add {
+  margin: 8px 0 8px 4px;
+}
+.subtask-add-trigger {
+  color: var(--muted);
+  min-height: 44px;
+  padding: 8px 4px;
+}
+.subtask-progress-bar {
+  height: 3px;
+  background: var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.subtask-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--green);
+}
+.detail-panel > .subtasks {
+  margin: 16px 0 24px;
+  padding-top: 0;
+  border: 0;
+}
+@media (max-width: 600px) {
+  .task-progress {
+    padding-left: 4px;
+  }
 }
