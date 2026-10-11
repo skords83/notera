@@ -50,6 +50,7 @@ import {
   taskCount,
 } from "../shared/presentation";
 import { Subtasks, subtaskProgress } from "./Subtasks";
+import { TaskActions } from "./TaskActions";
 import { UndoToast } from "./UndoToast";
 import "./style.css";
 const views = [
@@ -173,6 +174,7 @@ function App() {
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(
     () => new Set(),
   );
+  const [addRequests, setAddRequests] = useState<Record<string, number>>({});
   function toggleSubtasks(id: string) {
     setExpandedTasks((previous) => {
       const next = new Set(previous);
@@ -562,6 +564,27 @@ function App() {
                   return (
                     <div className="task-item" key={t.id}>
                       <div className={"task-row " + (t.done ? "done" : "")}>
+                        {children.length > 0 || expanded ? (
+                          <button
+                            className="subtask-toggle"
+                            id={`${regionId}-toggle`}
+                            aria-label={toggleLabel}
+                            aria-expanded={expanded}
+                            aria-controls={regionId}
+                            onClick={() => toggleSubtasks(t.id)}
+                          >
+                            {expanded ? (
+                              <CaretDownIcon aria-hidden="true" />
+                            ) : (
+                              <CaretRightIcon aria-hidden="true" />
+                            )}
+                          </button>
+                        ) : (
+                          <span
+                            className="subtask-toggle-placeholder"
+                            aria-hidden="true"
+                          />
+                        )}
                         <button
                           className="check-hit"
                           aria-label={
@@ -613,7 +636,10 @@ function App() {
                             <span>{t.title}</span>
                             <small>
                               {[
-                                data.lists.find((l) => l.id === t.listId)?.name,
+                                query || (!list && view !== "Eingang")
+                                  ? data.lists.find((l) => l.id === t.listId)
+                                      ?.name
+                                  : null,
                                 formatDue(t.due),
                                 t.assignee
                                   ? data.users.find((u) => u.id === t.assignee)
@@ -633,13 +659,18 @@ function App() {
                                 .join(" · ")}
                             </small>
                           </button>
-                          {children.length > 0 && (
+                          {children.length > 0 && !expanded && (
                             <button
                               className="task-progress"
                               aria-expanded={expanded}
                               aria-controls={regionId}
                               aria-label={`${subtaskProgress(children.filter((c) => c.done).length, children.length)}. ${toggleLabel}`}
-                              onClick={() => toggleSubtasks(t.id)}
+                              onClick={() => {
+                                document
+                                  .getElementById(`${regionId}-toggle`)
+                                  ?.focus();
+                                toggleSubtasks(t.id);
+                              }}
                             >
                               {subtaskProgress(
                                 children.filter((c) => c.done).length,
@@ -682,25 +713,46 @@ function App() {
                             <XIcon />
                           </button>
                         )}
-                        {children.length > 0 && (
-                          <button
-                            className="subtask-toggle"
-                            aria-label={toggleLabel}
-                            aria-expanded={expanded}
-                            aria-controls={regionId}
-                            onClick={() => toggleSubtasks(t.id)}
-                          >
-                            {expanded ? (
-                              <CaretDownIcon aria-hidden="true" />
-                            ) : (
-                              <CaretRightIcon aria-hidden="true" />
-                            )}
-                          </button>
+
+                        {!t.deleted && (
+                          <TaskActions
+                            title={t.title}
+                            id={t.id}
+                            onAdd={() => {
+                              setExpandedTasks((previous) =>
+                                new Set(previous).add(t.id),
+                              );
+                              setAddRequests((previous) => ({
+                                ...previous,
+                                [t.id]: (previous[t.id] || 0) + 1,
+                              }));
+                            }}
+                          />
                         )}
                       </div>
-                      {children.length > 0 && (
+                      {(children.length > 0 || expanded) && (
                         <div id={regionId} hidden={!expanded}>
-                          <Subtasks task={t} inline />
+                          <Subtasks
+                            task={t}
+                            inline
+                            addRequest={addRequests[t.id]}
+                            onAddStarted={() =>
+                              setAddRequests((previous) => ({
+                                ...previous,
+                                [t.id]: 0,
+                              }))
+                            }
+                            onCancelEmpty={() => {
+                              setExpandedTasks((previous) => {
+                                const next = new Set(previous);
+                                next.delete(t.id);
+                                return next;
+                              });
+                              document
+                                .getElementById(`task-actions-${t.id}`)
+                                ?.focus();
+                            }}
+                          />
                         </div>
                       )}
                     </div>

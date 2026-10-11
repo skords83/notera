@@ -123,9 +123,15 @@ export function subtaskProgress(done: number, total: number) {
 export function Subtasks({
   task,
   inline = false,
+  addRequest = 0,
+  onAddStarted,
+  onCancelEmpty,
 }: {
   task: Task;
   inline?: boolean;
+  addRequest?: number;
+  onAddStarted?: () => void;
+  onCancelEmpty?: () => void;
 }) {
   const children = (store.projected().subtasks || []).filter(
     (c) => c.taskId === task.id && !c.deleted,
@@ -144,6 +150,13 @@ export function Subtasks({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (addRequest) {
+      setAdding(true);
+      input.current?.focus();
+      onAddStarted?.();
+    }
+  }, [addRequest, onAddStarted]);
   async function add(e: FormEvent) {
     e.preventDefault();
     if (busy) return;
@@ -236,6 +249,10 @@ export function Subtasks({
                   e.stopPropagation();
                   setTitle("");
                   setError("");
+                  if (children.length === 0 && onCancelEmpty) {
+                    onCancelEmpty();
+                    return;
+                  }
                   focusAddButton.current = true;
                   setAdding(false);
                 }

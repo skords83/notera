@@ -360,8 +360,8 @@ main {
 .task-row {
   display: flex;
   align-items: flex-start;
-  gap: 4px;
-  padding: 11px 0;
+  gap: 0;
+  padding: 4px 0;
 }
 .check-hit {
   flex: 0 0 44px;
@@ -900,7 +900,7 @@ dialog .login {
 }
 .inline-subtasks {
   border: 0;
-  margin: 0 0 12px 44px;
+  margin: 0 0 4px 60px;
   padding: 0;
 }
 .inline-subtasks ul {
@@ -911,7 +911,7 @@ dialog .login {
   padding: 0;
 }
 .inline-subtasks .subtask-add {
-  margin: 8px 0 8px 4px;
+  margin: 4px 0 4px 4px;
 }
 .subtask-add-trigger {
   color: var(--muted);
@@ -939,4 +939,38 @@ dialog .login {
   .task-progress {
     padding-left: 4px;
   }
+}
+
+/* Reserve the disclosure column so all parent titles stay aligned. */
+.subtask-toggle-placeholder {
+  flex: 0 0 44px;
+}
+.task-content small:empty {
+  display: none;
+}
+.task-actions {
+  position: relative;
+  flex: 0 0 44px;
+}
+.task-actions > button {
+  width: 44px;
+  height: 44px;
+  padding: 10px;
+  color: var(--muted);
+}
+.task-actions-popup {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  z-index: 5;
+  width: 220px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px #0002;
+}
+.task-actions-popup button {
+  width: 100%;
+  text-align: left;
 }
