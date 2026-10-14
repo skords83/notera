@@ -1,3 +1,4 @@
+import { orderScenarios } from "../tests/order-scenarios";
 /** Run only inside the disposable CI Compose installation. Creates and drops its own databases. */
 import pg from "pg";
 import assert from "node:assert/strict";
@@ -40,18 +41,26 @@ try {
   const id = randomUUID(),
     child = randomUUID(),
     device = randomUUID();
-  await mutate(source, user, {
-    key: randomUUID(),
-    device,
-    entity: "task",
-    id,
-    version: 0,
-    patch: { title: "Existing before upgrade", listId },
-  });
+  await source.query(
+    "INSERT INTO tasks(id,list_id,data,version,field_versions,created_by) VALUES($1,$2,$3,1,'{}',$4)",
+    [
+      id,
+      listId,
+      JSON.stringify({
+        title: "Existing before upgrade",
+        done: false,
+        deleted: false,
+      }),
+      user,
+    ],
+  );
   const old = (await source.query("SELECT * FROM tasks")).rows;
   await source.migrate();
   await source.migrate();
-  assert.deepEqual((await source.query("SELECT * FROM tasks")).rows, old);
+  assert.deepEqual(
+    (await source.query("SELECT * FROM tasks")).rows,
+    old.map((r) => ({ ...r, position: 1, order_version: 0 })),
+  );
   await mutate(source, user, {
     key: randomUUID(),
     device,
@@ -81,6 +90,11 @@ try {
     version: 2,
     patch: { action: "undo", key },
   });
+  const peerUrl = new URL(process.env.DATABASE_URL);
+  peerUrl.pathname = "/" + names[0];
+  const peer = new Database(peerUrl.toString());
+  opened.push(peer);
+  const orderUser = await orderScenarios(source, peer);
   const saved = await backup(source);
   await target.migrate();
   await restore(target, saved);
@@ -88,9 +102,22 @@ try {
     (await snapshot(target, user, 0, device)).subtasks,
     (await snapshot(source, user, 0, device)).subtasks,
   );
-  assert.equal((await snapshot(target, user, 0, device)).tasks[0].done, false);
+  assert.equal(
+    (await snapshot(target, user, 0, device)).tasks.find((t) => t.id === id)!
+      .done,
+    false,
+  );
+  const restoredOrder = await snapshot(target, orderUser.user, 0, device);
+  const sourceOrder = await snapshot(source, orderUser.user, 0, device);
+  const byId = (a: { id: string }, b: { id: string }) =>
+    a.id.localeCompare(b.id);
+  assert.deepEqual(
+    restoredOrder.tasks.sort(byId),
+    sourceOrder.tasks.sort(byId),
+  );
+  assert.deepEqual(restoredOrder.subtasks, sourceOrder.subtasks);
   console.log(
-    "PostgreSQL: legacy upgrade, completion/undo and backup/restore passed in isolated databases.",
+    "PostgreSQL: legacy upgrade, completion/undo, manual ordering/concurrency and backup/restore passed in isolated databases.",
   );
 } finally {
   for (const db of opened) await db.close();

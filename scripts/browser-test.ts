@@ -1,3 +1,4 @@
+import { orderChecks } from "./browser-order";
 import { addTask as add, addTaskWithStorageContention } from "./browser-tasks";
 import { inlineSubtaskChecks } from "./browser-inline-subtasks";
 import { subtaskLayoutChecks } from "./browser-subtask-layout";
@@ -145,6 +146,7 @@ try {
   await inlineSubtaskChecks(page, a, page2);
   await subtaskLayoutChecks(page);
   await browserRegressions(page, a);
+  await orderChecks(page, a, sandra);
   expect(errors).toEqual([]);
   console.log(
     "Browserchecks bestanden: private/geteilte Listen, zwei Browserkonten, Reload, Offline-Reload, Abgleich, 320/360/Desktop ohne Überbreite. Screenshots in test-results/. Sichtprüfung und echte Android-Abnahme separat.",

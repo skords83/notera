@@ -95,6 +95,13 @@ export async function subtaskChecks(page: Page, context: BrowserContext) {
     })
     .click();
   await page
+    .getByRole("dialog")
+    .getByRole("button", {
+      name: "Aktionen für „Schatz besorgen“",
+      exact: true,
+    })
+    .click();
+  await page
     .getByRole("button", { name: "Schatz besorgen entfernen", exact: true })
     .click();
   await expect(page.locator("dialog .subtasks h3")).toContainText("0 von 2");

@@ -106,7 +106,7 @@ export async function subtaskLayoutChecks(page: Page) {
         fullPage: true,
       });
       // Always-visible menu and keyboard focus on small screens too.
-      const actions = first.locator(".task-actions > button");
+      const actions = first.locator(".task-row > .task-actions > button");
       await actions.focus();
       await actions.press("Enter");
       await expect(

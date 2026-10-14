@@ -974,3 +974,83 @@ dialog .login {
   width: 100%;
   text-align: left;
 }
+
+/* Only the grip captures touch gestures; the rest retains native scrolling. */
+.sort-handle {
+  flex: 0 0 44px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 6px;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+}
+.sort-handle:active {
+  cursor: grabbing;
+}
+.task-item,
+.subtask-row {
+  position: relative;
+}
+.insert-before::before,
+.insert-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent, #90b7ff);
+  z-index: 10001;
+  pointer-events: none;
+}
+.insert-before::before {
+  top: 0;
+}
+.insert-after::after {
+  bottom: 0;
+}
+.order-dragging {
+  opacity: 0.4;
+}
+.order-ghost {
+  position: fixed !important;
+  z-index: 10000;
+  pointer-events: none;
+  opacity: 0.85;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 20px #0003;
+  max-height: 55vh;
+  overflow: hidden;
+}
+.order-ghost .task-actions-popup {
+  display: none;
+}
+.subtask-row > .sort-handle {
+  flex: 0 0 44px;
+  width: 44px;
+  min-width: 44px;
+}
+.inline-subtasks .subtask-add-trigger {
+  margin-left: 52px;
+  padding-left: 0;
+  min-height: 44px;
+}
+@media (max-width: 600px) {
+  .task-actions-popup {
+    max-width: calc(100vw - 40px);
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

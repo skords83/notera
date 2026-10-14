@@ -69,6 +69,8 @@ export const subtaskPatch = z
   .partial()
   .strict();
 export type Subtask = {
+  position?: number;
+  orderVersion?: number;
   id: string;
   taskId: string;
   title: string;
@@ -123,6 +125,8 @@ export type TaskData = {
   completedAt: string | null;
 };
 export type Task = TaskData & {
+  position?: number;
+  orderVersion?: number;
   id: string;
   version: number;
   updatedAt: string;
@@ -150,6 +154,7 @@ export type User = {
   timezone: string;
 };
 export type Snapshot = {
+  orderReceipts?: string[];
   userId?: string;
   cursor: number;
   reset: boolean;
@@ -163,7 +168,14 @@ export const mutationSchema = z
   .object({
     key: uuid,
     device: uuid,
-    entity: z.enum(["task", "preference", "list", "subtask", "completion"]),
+    entity: z.enum([
+      "task",
+      "preference",
+      "list",
+      "subtask",
+      "completion",
+      "order",
+    ]),
     id: uuid,
     version: z.number().int().min(0),
     patch: z.record(z.string(), z.unknown()),

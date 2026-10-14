@@ -1,3 +1,5 @@
+import { setMaxListeners } from "node:events";
+import { ordered } from "../src/shared/order";
 import "fake-indexeddb/auto";
 import { openDB } from "idb";
 import { test } from "node:test";
@@ -55,6 +57,8 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
     value: undefined,
     configurable: true,
   });
+  // Many module reloads intentionally share these mock event targets.
+  setMaxListeners(30, window, document);
   const originalFetch = globalThis.fetch;
   const originalInterval = globalThis.setInterval;
   globalThis.setInterval = ((...args: any[]) => {
@@ -353,6 +357,133 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
       "Local title",
     );
 
+    // Offline-created IDs can be reordered before their first server acknowledgement.
+    online = false;
+    const orderIds = [randomUUID(), randomUUID(), randomUUID()];
+    for (const id of orderIds)
+      await store.enqueue("task", id, {
+        title: "Offline ordered " + id,
+        listId: colorList,
+      });
+    await store.move("task", orderIds[2], orderIds[0], "before");
+    await store.move("task", orderIds[0], orderIds[1], "after");
+    await store.move("task", orderIds[2], orderIds[0], "after");
+    const orderedIds = () =>
+      ordered(
+        store.projected().tasks.filter((t) => t.listId === colorList),
+      ).map((t) => t.id);
+    assert.deepEqual(orderedIds(), [orderIds[1], orderIds[0], orderIds[2]]);
+    await store.move("subtask", childB, childA, "before");
+    await store.move("subtask", childA, childB, "before");
+    const freshChildren = [randomUUID(), randomUUID()];
+    for (const id of freshChildren)
+      await store.enqueue("subtask", id, {
+        taskId: orderIds[0],
+        title: "Offline step",
+      });
+    await store.move("subtask", freshChildren[1], freshChildren[0], "before");
+    store = await load("order-offline-reload");
+    await store.init();
+    assert.deepEqual(orderedIds(), [orderIds[1], orderIds[0], orderIds[2]]);
+    online = true;
+    await store.sync();
+    assert.deepEqual(store.getState().queue, []);
+    const otherOrder = await snapshot(db, other, 0, randomUUID());
+    assert.deepEqual(
+      ordered(otherOrder.tasks.filter((t) => t.listId === colorList)).map(
+        (t) => t.id,
+      ),
+      orderedIds(),
+    );
+    assert.deepEqual(
+      ordered(otherOrder.subtasks.filter((c) => c.taskId === orderIds[0])).map(
+        (c) => c.id,
+      ),
+      [freshChildren[1], freshChildren[0]],
+    );
+    // Lost response after a committed move: receipt prevents optimistic double application.
+    online = false;
+    await store.move("task", orderIds[2], orderIds[1], "before");
+    online = true;
+    loseResponse = true;
+    await store.sync();
+    assert.equal(store.getState().queue.length, 1);
+    const storageAfterMove = await openDB("notera-v1", 1);
+    const stateAfterMove = await storageAfterMove.get("state", "active");
+    stateAfterMove.snapshot = await snapshot(
+      db,
+      user,
+      0,
+      stateAfterMove.device,
+    );
+    await storageAfterMove.put("state", stateAfterMove, "active");
+    storageAfterMove.close();
+    online = false;
+    store = await load("order-lost-response-reload");
+    await store.init();
+    assert.deepEqual(orderedIds(), [orderIds[2], orderIds[1], orderIds[0]]);
+    const serverOrderVersion = stateAfterMove.snapshot.tasks.find(
+      (t: any) => t.id === orderIds[2],
+    ).orderVersion;
+    assert.equal(
+      store.projected().tasks.find((t) => t.id === orderIds[2])!.orderVersion,
+      serverOrderVersion,
+    );
+    await store.move("task", orderIds[2], orderIds[0], "after");
+    online = true;
+    await store.sync();
+    assert.deepEqual(store.getState().queue, []);
+    assert.deepEqual(orderedIds(), [orderIds[1], orderIds[0], orderIds[2]]);
+    // Remote sorting conflicts visibly, survives reload, and cannot look successful locally.
+    online = false;
+    await store.move("task", orderIds[2], orderIds[1], "before");
+    const { base: ignoredBase, ...conflictMove } = store.getState().queue[0];
+    await mutate(db, other, {
+      ...conflictMove,
+      key: randomUUID(),
+      patch: {
+        ...conflictMove.patch,
+        anchorId: orderIds[0],
+        anchorVersion: store
+          .projected()
+          .tasks.find((t) => t.id === orderIds[0])!.orderVersion,
+        side: "before",
+      },
+    });
+    online = true;
+    await store.sync();
+    assert.equal(store.status(), "Konflikt");
+    const serverOrder = ordered(
+      (await snapshot(db, user, 0, randomUUID())).tasks.filter(
+        (t) => t.listId === colorList,
+      ),
+    ).map((t) => t.id);
+    assert.deepEqual(orderedIds(), serverOrder);
+    store = await load("order-conflict-reload");
+    await store.init();
+    assert.equal(store.getState().queue[0].status, 409);
+    await assert.rejects(
+      store.resolveConflict(store.getState().queue[0].key),
+      /verwerfen/,
+    );
+    await store.discard(store.getState().queue[0].key);
+    // Removed neighbour preserves the failed move for explicit resolution.
+    online = false;
+    await store.move("task", orderIds[2], orderIds[0], "after");
+    await mutate(db, other, {
+      entity: "task",
+      id: orderIds[0],
+      version: store.projected().tasks.find((t) => t.id === orderIds[0])!
+        .version,
+      key: randomUUID(),
+      device: randomUUID(),
+      patch: { deleted: true },
+    });
+    online = true;
+    await store.sync();
+    assert.equal(store.getState().queue[0].status, 409);
+    await store.discard(store.getState().queue[0].key);
+
     // A permanently deleted parent never comes back through pending child edits/creates.
     online = false;
     await store.enqueue("subtask", childA, { title: "Retain local text" });
@@ -516,6 +647,7 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
       taskId: privatePending,
       title: "Entzug entfernt Kind",
     });
+    await store.move("task", privatePending, shared, "before");
     await mutate(db, other, {
       key: randomUUID(),
       device: randomUUID(),
@@ -527,6 +659,7 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
     online = true;
     await store.sync();
     assert.equal(store.getState().queue.length, 0);
+    assert.match(store.getState().notice || "", /nicht übernommen/);
     assert.equal(
       store.projected().tasks.find((t) => t.id === shared),
       undefined,

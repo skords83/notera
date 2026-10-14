@@ -39,17 +39,19 @@ test("migration upgrades existing lists and restores old/new backups including c
       await db.query(sql);
     const user = await createUser(db, "old", "Alt", "test-password-old-123");
     const taskId = randomUUID();
-    await mutate(db, user, {
-      key: randomUUID(),
-      device: randomUUID(),
-      entity: "task",
-      id: taskId,
-      version: 0,
-      patch: {
-        title: "Bestehende Aufgabe",
-        listId: (await db.query("SELECT id FROM lists")).rows[0].id,
-      },
-    });
+    await db.query(
+      "INSERT INTO tasks(id,list_id,data,version,field_versions,created_by) VALUES($1,$2,$3,1,'{}',$4)",
+      [
+        taskId,
+        (await db.query("SELECT id FROM lists")).rows[0].id,
+        JSON.stringify({
+          title: "Bestehende Aufgabe",
+          done: false,
+          deleted: false,
+        }),
+        user,
+      ],
+    );
     const oldTask = (
       await db.query("SELECT * FROM tasks WHERE id=$1", [taskId])
     ).rows[0];
@@ -66,7 +68,7 @@ test("migration upgrades existing lists and restores old/new backups including c
     await db.migrate();
     assert.deepEqual(
       (await db.query("SELECT * FROM tasks WHERE id=$1", [taskId])).rows[0],
-      oldTask,
+      { ...oldTask, position: 1, order_version: 0 },
     );
     assert.equal((await db.query("SELECT * FROM subtasks")).rows.length, 0);
     assert.equal(
