@@ -427,7 +427,7 @@ export async function move(
       key: crypto.randomUUID(),
       device: s.device,
       patch,
-      base: { ...row },
+      base: { ...row, anchorTitle: anchor.title },
     });
     return s;
   });
@@ -694,6 +694,22 @@ export async function sync() {
               pending.error = (e as Error).message;
               pending.detail = e.detail;
               pending.status = e.code;
+              if (m.entity === "order") {
+                const following = s.queue.slice(s.queue.indexOf(pending) + 1);
+                for (const q of following) {
+                  if (
+                    q.entity === "order" &&
+                    q.patch.kind === m.patch.kind &&
+                    q.patch.scopeId === m.patch.scopeId &&
+                    !q.error
+                  ) {
+                    q.error =
+                      "Eine vorausgehende Sortieraktion wurde abgelehnt. Bitte auch diese Folgeaktion prüfen und die Position erneut wählen.";
+                    q.status = 409;
+                    q.detail = { causeKey: m.key };
+                  }
+                }
+              }
             }
             return s;
           });

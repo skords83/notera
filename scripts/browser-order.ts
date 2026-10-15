@@ -378,4 +378,63 @@ export async function orderChecks(
   } finally {
     await touch.close();
   }
+  // A conflicting offline chain stays explicit even after its first move is discarded.
+  await expect.poll(rows).toEqual([a, b, c, ...beforeScroll.slice(3)]);
+  await expect
+    .poll(() =>
+      sandra.locator(".task-row .task-content > span").allTextContents(),
+    )
+    .toEqual([a, b, c, ...beforeScroll.slice(3)]);
+  await context.setOffline(true);
+  await menu(c);
+  await page
+    .getByRole("button", { name: `${c}: Nach oben`, exact: true })
+    .click();
+  await expect.poll(rows).toEqual([a, c, b, ...beforeScroll.slice(3)]);
+  await menu(c);
+  await page
+    .getByRole("button", { name: `${c}: Nach oben`, exact: true })
+    .click();
+  await expect.poll(rows).toEqual([c, a, b, ...beforeScroll.slice(3)]);
+  await sandra
+    .getByRole("button", { name: `Aktionen für „${c}“`, exact: true })
+    .click();
+  await sandra
+    .getByRole("button", { name: `${c}: Nach oben`, exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      sandra.locator(".task-row .task-content > span").allTextContents(),
+    )
+    .toEqual([a, c, b, ...beforeScroll.slice(3)]);
+  await expect(sandra.locator("button.sync")).toHaveText("Synchronisiert");
+  await context.setOffline(false);
+  await expect(page.locator("button.sync")).toHaveText("Konflikt", {
+    timeout: 30000,
+  });
+  await page.locator("button.sync").click();
+  await expect(dialog.locator(".conflict")).toHaveCount(2);
+  await expect(dialog.locator(".conflict").first()).toContainText(c);
+  await expect(dialog.locator(".conflict").first()).toContainText(
+    "verschieben.",
+  );
+  await expect(dialog.locator(".conflict").first()).toContainText(
+    "Aktuelle Position",
+  );
+  await page.screenshot({
+    path: "test-results/order-conflict.png",
+    fullPage: true,
+  });
+  await dialog
+    .getByRole("button", { name: "Serverfassung behalten", exact: true })
+    .first()
+    .click();
+  await expect(dialog.locator(".conflict")).toHaveCount(1);
+  await expect(dialog.locator(".conflict")).toContainText("Folgeaktion");
+  await dialog
+    .getByRole("button", { name: "Serverfassung behalten", exact: true })
+    .click();
+  await expect(dialog.locator(".conflict")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Schließen", exact: true }).click();
+  await expect.poll(rows).toEqual([a, c, b, ...beforeScroll.slice(3)]);
 }

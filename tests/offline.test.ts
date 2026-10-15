@@ -437,6 +437,7 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
     // Remote sorting conflicts visibly, survives reload, and cannot look successful locally.
     online = false;
     await store.move("task", orderIds[2], orderIds[1], "before");
+    await store.move("task", orderIds[2], orderIds[1], "after");
     const { base: ignoredBase, ...conflictMove } = store.getState().queue[0];
     await mutate(db, other, {
       ...conflictMove,
@@ -466,6 +467,14 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
       store.resolveConflict(store.getState().queue[0].key),
       /verwerfen/,
     );
+    await store.discard(store.getState().queue[0].key);
+    assert.equal(store.getState().queue.length, 1);
+    assert.equal(
+      store.getState().queue[0].status,
+      409,
+      "dependent move must not silently resume on a coincidentally matching remote version",
+    );
+    assert.deepEqual(orderedIds(), serverOrder);
     await store.discard(store.getState().queue[0].key);
     // Removed neighbour preserves the failed move for explicit resolution.
     online = false;

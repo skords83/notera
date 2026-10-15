@@ -1,4 +1,4 @@
-# Manuelle Reihenfolge – 14. Oktober 2026
+# Manuelle Reihenfolge – 15. Oktober 2026
 
 Basis: `main` bei `8641d90` (PR #7). Eigener Branch `feat/manual-task-order`. Arbeitskopie dauerhaft unter `.worktrees/manual-order`, nachdem die ursprüngliche `/tmp`-Kopie bei einer Sitzungsunterbrechung verloren ging. Keine Änderungen an Migrationen 001–003, keine neuen Abhängigkeiten, keine Tags/Filter/Wiederholungen/Push-Funktion, kein Merge oder produktiver Rollout.
 
@@ -11,16 +11,16 @@ Der 44×44-Pixel-Griff ist zugleich der Menüzugang: ziehen sortiert, tippen/kli
 ## Durchgeführt
 
 - `npm test`: 23 Tests in sieben Testdateien bestanden. Neue Szenarien prüfen Anfang/Mitte/Ende, offene/erledigte/ausgeblendete Aufgaben, fremde IDs, Mitgliederrechte, unabhängige Feldänderungen und konkurrierende Sortierung, neue/gelöschte/verschobene Nachbarn, Papierkorb/Wiederherstellung, Listenwechsel und Replay nach Rechteentzug.
-- Persistente IndexedDB-Queue mit echter API/PGlite: Offlineanlage und anschließendes Sortieren von Haupt-/Unteraufgaben, mehrere Verschiebungen, Modul-Neuladen, serverseitig bereits gespeicherte Operation bei verlorener Antwort, weitere Offlinebewegung, Mitgliederabgleich, sichtbare Konflikte und Rechteentzug. Keine bloßen HTTP-Mocks für die Domänenlogik.
+- Persistente IndexedDB-Queue mit echter API/PGlite: Offlineanlage und anschließendes Sortieren von Haupt-/Unteraufgaben, mehrere Verschiebungen, Modul-Neuladen, serverseitig bereits gespeicherte Operation bei verlorener Antwort, weitere Offlinebewegung, Mitgliederabgleich, sichtbare Konflikte und Rechteentzug. Folgeaktionen einer abgelehnten Verschiebung bleiben auch nach Verwerfen der ersten Aktion prüfpflichtig; der Browser prüft die verständliche Konfliktdarstellung und beide ausdrücklichen Entscheidungen. Keine bloßen HTTP-Mocks für die Domänenlogik.
 - PGlite: Migration mit bestehenden Daten und Zeitgleichständen, zweimaliger Migrationsaufruf, Restore alter `notera-1`/`notera-2`-Backups und neuer `notera-3`-Sicherung einschließlich Positionen und Belegen.
 - `npm run build`: TypeScript und Produktionsbuild bestanden. Die bereits bestehende Vite-Warnung über ein Bundle größer als 500 kB bleibt.
 - `CHROMIUM_PATH=/usr/bin/chromium npm run test:browser`: kompletter vorhandener Browserlauf plus neue Sortierfälle bestanden. Tastaturmenü, Grenzaktionen, Ziehen einer aufgeklappten Hauptgruppe, Escape, Ablegen außerhalb des Bereichs ohne Änderung, Ziehen im Detail, identische Unteraufgabenreihenfolge, Statusbereiche, Offline-Reload, zweites Mitglied, Hauptsortierung in Systemansichten/Suche deaktiviert, lange Liste mit Randscrollen.
 - Chromium-Touchemulation: Menü per Tap, normales Scrollen außerhalb des Griffs, Ziehbeginn am Griff und `touchCancel` ohne Reihenfolgeänderung bestanden. **Kein Nachweis für ein echtes Android-Gerät.**
-- Die zwölf Screenshots `order-{dark,light}-{1360,360,320}.png` und `order-detail-{dark,light}-{1360,360,320}.png` sowie `order-drag-group.png` wurden tatsächlich geöffnet und visuell geprüft: lange Titel umbrechen, Menüs bleiben erreichbar, kein horizontaler Überlauf, Fokus sichtbar, Unteraufgaben eingerückt, Hinzufügen an der Textkante. Die Browsertests messen die Ausrichtung zusätzlich. Aufnahmen liegen in `test-results/` und werden im bestehenden CI-Artefakt gesammelt.
+- Die zwölf Screenshots `order-{dark,light}-{1360,360,320}.png` und `order-detail-{dark,light}-{1360,360,320}.png` sowie `order-drag-group.png` und `order-conflict.png` wurden tatsächlich geöffnet und visuell geprüft: lange Titel umbrechen, Menüs bleiben erreichbar, kein horizontaler Überlauf, Fokus sichtbar, Unteraufgaben eingerückt, Hinzufügen an der Textkante. Die Browsertests messen die Ausrichtung zusätzlich. Aufnahmen liegen in `test-results/` und werden im bestehenden CI-Artefakt gesammelt.
 
 ## Offen / Grenzen
 
-- Docker, Podman und ein PostgreSQL-Server sind lokal nicht verfügbar. Der vorhandene GitHub-Actions-/Containerworkflow prüft Migration, Sortierung über zwei PostgreSQL-Verbindungen und Backup/Restore über das erweiterte `scripts/postgres-subtasks.ts`; dessen Ergebnis ist vor Merge abzuwarten.
+- Docker, Podman und ein PostgreSQL-Server sind lokal nicht verfügbar. Der vorhandene GitHub-Actions-/Containerworkflow prüft Migration, Sortierung über zwei PostgreSQL-Verbindungen und Backup/Restore über das erweiterte `scripts/postgres-subtasks.ts`; [Lauf 38639670289](https://github.com/skords83/notera/actions/runs/38639670289) für `d6d96bd` bestand einschließlich Containerstart/Neustartprüfung; die Veröffentlichung wurde wie vorgesehen übersprungen. Die nachfolgende Absicherung abhängiger Konfliktaktionen wird im aktuellen PR-Lauf erneut geprüft.
 - Echte Android-Hardware, TalkBack/NVDA und ein physischer Zwei-Geräte-Abgleich wurden nicht geprüft. Browserkonten/Touchemulation ersetzen diese Abnahmen nicht.
 - Der Vollsnapshot enthält die eigenen Sortier-Idempotenzschlüssel; diese wachsen wie die vorhandenen dauerhaften Belege mit der Nutzung. Für die kleine Installation bewusst einfach, keine Behauptung unbegrenzter Skalierbarkeit.
 

@@ -1,3 +1,4 @@
+import { scopeRows } from "../shared/order";
 import { moveAction, OrderAnnouncement } from "./Ordering";
 import {
   listColors,
@@ -974,20 +975,30 @@ function App() {
               <div className="conflict" key={q.key}>
                 <strong>{q.error}</strong>
                 <h3>Deine Änderung</h3>
-                <ConflictValues value={q.patch} />
+                {q.entity === "order" ? (
+                  <OrderConflictValues pending={q} />
+                ) : (
+                  <ConflictValues value={q.patch} />
+                )}
                 <h3>Serverfassung</h3>
-                <ConflictValues
-                  value={
-                    q.detail?.current ??
-                    (q.entity === "preference"
-                      ? state.snapshot.preferences[q.id]
-                      : q.entity === "list"
-                        ? state.snapshot.lists.find((l) => l.id === q.id)
-                        : q.entity === "subtask"
-                          ? state.snapshot.subtasks?.find((c) => c.id === q.id)
-                          : state.snapshot.tasks.find((t) => t.id === q.id))
-                  }
-                />
+                {q.entity === "order" ? (
+                  <OrderConflictValues pending={q} server />
+                ) : (
+                  <ConflictValues
+                    value={
+                      q.detail?.current ??
+                      (q.entity === "preference"
+                        ? state.snapshot.preferences[q.id]
+                        : q.entity === "list"
+                          ? state.snapshot.lists.find((l) => l.id === q.id)
+                          : q.entity === "subtask"
+                            ? state.snapshot.subtasks?.find(
+                                (c) => c.id === q.id,
+                              )
+                            : state.snapshot.tasks.find((t) => t.id === q.id))
+                    }
+                  />
+                )}
                 <div className="actions">
                   <button
                     onClick={() =>
@@ -1065,6 +1076,52 @@ function App() {
         </Modal>
       )}
     </div>
+  );
+}
+function OrderConflictValues({
+  pending,
+  server = false,
+}: {
+  pending: store.Pending;
+  server?: boolean;
+}) {
+  const data = store.getState().snapshot;
+  const kind = pending.patch.kind === "subtask" ? "subtask" : "task";
+  const all = kind === "task" ? data.tasks : data.subtasks || [];
+  const row = all.find((r) => r.id === pending.id);
+  const title = String(pending.base?.title || row?.title || "Aufgabe");
+  if (!server) {
+    const anchor = all.find((r) => r.id === pending.patch.anchorId);
+    return (
+      <p>
+        „{title}“ {pending.patch.side === "before" ? "vor" : "nach"} „
+        {anchor?.title ||
+          String(
+            pending.base?.anchorTitle || "nicht mehr verfügbarem Nachbarn",
+          )}
+        “ verschieben.
+      </p>
+    );
+  }
+  if (!row || row.deleted)
+    return <p>„{title}“ ist nicht mehr verfügbar oder gelöscht.</p>;
+  const scopeId = "listId" in row ? row.listId : row.taskId;
+  if (kind === "subtask" && data.tasks.find((t) => t.id === scopeId)?.deleted)
+    return <p>Die Hauptaufgabe liegt im Papierkorb.</p>;
+  const siblings = scopeRows(data, { kind, scopeId }).filter(
+    (r) => !r.deleted && (kind === "subtask" || r.done === row.done),
+  );
+  return (
+    <p>
+      „{row.title}“: Aktuelle Position{" "}
+      {siblings.findIndex((r) => r.id === row.id) + 1} von {siblings.length}
+      {kind === "task"
+        ? row.done
+          ? " im erledigten Bereich"
+          : " im offenen Bereich"
+        : ""}
+      .
+    </p>
   );
 }
 function ConflictValues({
