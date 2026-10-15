@@ -1,3 +1,37 @@
+# Manuelle Reihenfolge – 15. Oktober 2026
+
+Basis: `main` bei `8641d90` (PR #7). Eigener Branch `feat/manual-task-order`. Arbeitskopie dauerhaft unter `.worktrees/manual-order`, nachdem die ursprüngliche `/tmp`-Kopie bei einer Sitzungsunterbrechung verloren ging. Keine Änderungen an Migrationen 001–003, keine neuen Abhängigkeiten, keine Tags/Filter/Wiederholungen/Push-Funktion, kein Merge oder produktiver Rollout.
+
+## Umsetzung
+
+Gemeinsame serverseitige Reihenfolge für Haupt-/Unteraufgaben, additive Migration 004 und Backupformat `notera-3`. Gezielt versandte Verschiebungen mit Quell-/Nachbar-ID und eigenen Reihenfolgeversionen, aktuelle Rechteprüfung, transaktionale Einfügung, persistente Idempotenzbelege. Die bestehende Offline-Queue übernimmt sofortige lokale Anzeige, Neuladen, Anlagen vor dem ersten Abgleich und mehrere aufeinanderfolgende Verschiebungen. Konflikte bleiben sichtbar; die abgelehnte Sortierung wird nicht als aktuelle Reihenfolge projiziert. Rechteentzug hinterlässt einen dauerhaften Hinweis über nicht übernommene Änderungen. Details der deterministischen Konfliktstrategie stehen in [Architektur](ARCHITECTURE.md).
+
+Der 44×44-Pixel-Griff ist zugleich der Menüzugang: ziehen sortiert, tippen/klicken/Enter öffnet Aktionen. Keine zusätzliche dauerhafte Spalte. Tastaturaktionen, deaktivierte Grenzen, sichtbarer Fokus, höfliche einmalige Positionsmeldung, Gruppenvorschau, Einfügelinie, Randscrollen und Abbruch sind umgesetzt. `+ Unteraufgabe` steht an der Textkante. Eine erste Variante mit separatem Griff wurde nach tatsächlicher Sichtprüfung wegen zu schmaler Titel bei 320 Pixel verworfen.
+
+## Durchgeführt
+
+- `npm test`: 23 Tests in sieben Testdateien bestanden. Neue Szenarien prüfen Anfang/Mitte/Ende, offene/erledigte/ausgeblendete Aufgaben, fremde IDs, Mitgliederrechte, unabhängige Feldänderungen und konkurrierende Sortierung, neue/gelöschte/verschobene Nachbarn, Papierkorb/Wiederherstellung, Listenwechsel und Replay nach Rechteentzug.
+- Persistente IndexedDB-Queue mit echter API/PGlite: Offlineanlage und anschließendes Sortieren von Haupt-/Unteraufgaben, mehrere Verschiebungen, Modul-Neuladen, serverseitig bereits gespeicherte Operation bei verlorener Antwort, weitere Offlinebewegung, Mitgliederabgleich, sichtbare Konflikte und Rechteentzug. Folgeaktionen einer abgelehnten Verschiebung bleiben auch nach Verwerfen der ersten Aktion prüfpflichtig; der Browser prüft die verständliche Konfliktdarstellung und beide ausdrücklichen Entscheidungen. Keine bloßen HTTP-Mocks für die Domänenlogik.
+- PGlite: Migration mit bestehenden Daten und Zeitgleichständen, zweimaliger Migrationsaufruf, Restore alter `notera-1`/`notera-2`-Backups und neuer `notera-3`-Sicherung einschließlich Positionen und Belegen.
+- `npm run build`: TypeScript und Produktionsbuild bestanden. Die bereits bestehende Vite-Warnung über ein Bundle größer als 500 kB bleibt.
+- `CHROMIUM_PATH=/usr/bin/chromium npm run test:browser`: kompletter vorhandener Browserlauf plus neue Sortierfälle bestanden. Tastaturmenü, Grenzaktionen, Ziehen einer aufgeklappten Hauptgruppe, Escape, Ablegen außerhalb des Bereichs ohne Änderung, Ziehen im Detail, identische Unteraufgabenreihenfolge, Statusbereiche, Offline-Reload, zweites Mitglied, Hauptsortierung in Systemansichten/Suche deaktiviert, lange Liste mit Randscrollen.
+- Chromium-Touchemulation: Menü per Tap, normales Scrollen außerhalb des Griffs, Ziehbeginn am Griff und `touchCancel` ohne Reihenfolgeänderung bestanden. **Kein Nachweis für ein echtes Android-Gerät.**
+- Die zwölf Screenshots `order-{dark,light}-{1360,360,320}.png` und `order-detail-{dark,light}-{1360,360,320}.png` sowie `order-drag-group.png` und `order-conflict.png` wurden tatsächlich geöffnet und visuell geprüft: lange Titel umbrechen, Menüs bleiben erreichbar, kein horizontaler Überlauf, Fokus sichtbar, Unteraufgaben eingerückt, Hinzufügen an der Textkante. Die Browsertests messen die Ausrichtung zusätzlich. Aufnahmen liegen in `test-results/` und werden im bestehenden CI-Artefakt gesammelt.
+
+Ein nachfolgender CI-Lauf (`38793219050`) fand beim Übergang aus dem bisherigen Toast-Timertest noch einen Konflikt, bevor die Sortierfälle begannen. Der Timer-Test ließ mehrere Status-/Undo-Aktionen ohne Serverbestätigung überlappen und prüfte zum Schluss nur das Verschwinden des Toasts. Er prüft jetzt jede zugehörige Mutationsantwort und eine leere persistente Queue vor der nächsten Aktion bzw. dem nächsten Szenario. Die Prüfungen auf Fokus, Hover-Pause und beide Undo-Richtungen bleiben erhalten; die eigentlichen Offline-/Konflikttests bleiben separat bestehen.
+
+## Offen / Grenzen
+
+- Docker, Podman und ein PostgreSQL-Server sind lokal nicht verfügbar. Der vorhandene GitHub-Actions-/Containerworkflow prüft Migration, Sortierung über zwei PostgreSQL-Verbindungen und Backup/Restore über das erweiterte `scripts/postgres-subtasks.ts`; [Lauf 38639670289](https://github.com/skords83/notera/actions/runs/38639670289) für `d6d96bd` bestand einschließlich Containerstart/Neustartprüfung; die Veröffentlichung wurde wie vorgesehen übersprungen. Auch [Lauf 38790752611](https://github.com/skords83/notera/actions/runs/38790752611) für `f6cee34` mit der Absicherung abhängiger Konfliktaktionen bestand vollständig. Die abschließende Anpassung der Einfügelinie an die bestehende Theme-Farbe wurde danach lokal erneut mit Build, komplettem Browserlauf und tatsächlicher Sichtprüfung geprüft.
+- Echte Android-Hardware, TalkBack/NVDA und ein physischer Zwei-Geräte-Abgleich wurden nicht geprüft. Browserkonten/Touchemulation ersetzen diese Abnahmen nicht.
+- Der Vollsnapshot enthält die eigenen Sortier-Idempotenzschlüssel; diese wachsen wie die vorhandenen dauerhaften Belege mit der Nutzung. Für die kleine Installation bewusst einfach, keine Behauptung unbegrenzter Skalierbarkeit.
+
+## VPS-Update nach späterem Review/Merge
+
+Vorher sichern. Nach erfolgreichem bestehenden Imageworkflow `docker compose pull` und `docker compose up -d`. Migration 004 ergänzt Position/Reihenfolgeversion automatisch und transaktional. Keine neue Konfiguration. Anschließend Healthcheck, Anmeldung, Sortierung in einer geteilten Liste und Abgleich prüfen; alle PWA-Tabs schließen und neu öffnen. Neue JSON-Sicherungen benötigen Schema 004, alte Sicherungen bleiben importierbar. Diese Arbeit führt keinen dieser produktiven Schritte aus.
+
+---
+
 # Browser-Race beim Aufgabenanlegen – 10. Oktober 2026
 
 Nach dem Merge der Listenfarben schlug ein Main-Lauf beim Neuladen nach „Privater Gedanke“ fehl. Der bisherige Test wartete nach Enter nur auf „Synchronisiert“. Dieser Status konnte noch vom vorigen Vorgang stammen, bevor die neue IndexedDB-Schreibtransaktion abgeschlossen war. Damit war ein Neuladen vor lokaler Speicherung möglich.

@@ -1,3 +1,10 @@
+import {
+  initializeOrder,
+  orderPatch,
+  projectOrder,
+  scopeRows,
+  type OrderPatch,
+} from "../shared/order";
 import { openDB } from "idb";
 import {
   listPatch,
@@ -20,6 +27,7 @@ export type Pending = Mutation & {
   status?: number;
 };
 export type Local = {
+  notice?: string;
   user: User | null;
   snapshot: Snapshot;
   queue: Pending[];
@@ -159,11 +167,21 @@ export async function logout() {
   events = null;
   await update((s) => ({ ...s, user: null, snapshot: empty, queue: [] }));
 }
-export function projected(): Snapshot {
-  const result = structuredClone(state.snapshot);
+export function projected(local: Local = state): Snapshot {
+  const result = structuredClone(local.snapshot);
+  initializeOrder(result);
+  const blockedOrders = new Set<string>();
   result.subtasks ||= [];
-  for (const m of state.queue) {
+  for (const m of local.queue) {
     if (m.status === 403 && !(m.entity === "list" && m.version === 0)) continue;
+    if (m.entity === "order") {
+      if (result.orderReceipts?.includes(m.key)) continue;
+      const p = orderPatch.parse(m.patch);
+      const scope = p.kind + ":" + p.scopeId;
+      if (m.error) blockedOrders.add(scope);
+      if (!blockedOrders.has(scope)) projectOrder(result, m.id, p);
+      continue;
+    }
     if (m.entity === "subtask") {
       let child = result.subtasks.find((c) => c.id === m.id);
       const isNew = !child;
@@ -177,6 +195,14 @@ export function projected(): Snapshot {
           version: 0,
           createdAt: String(m.base?.createdAt || ""),
         };
+        child.position =
+          Math.max(
+            0,
+            ...result.subtasks
+              .filter((c) => c.taskId === child!.taskId)
+              .map((c) => c.position || 0),
+          ) + 1;
+        child.orderVersion = 0;
         result.subtasks.push(child);
       }
       Object.assign(child, m.patch);
@@ -212,7 +238,7 @@ export function projected(): Snapshot {
         t = {
           id: m.id,
           version: 0,
-          createdBy: state.user!.id,
+          createdBy: local.user!.id,
           updatedAt: new Date().toISOString(),
           title: "",
           notes: "",
@@ -225,6 +251,16 @@ export function projected(): Snapshot {
           completedAt: null,
         };
         result.tasks.push(t);
+      }
+      if (m.patch.listId && t.listId !== m.patch.listId) {
+        t.position =
+          Math.max(
+            0,
+            ...result.tasks
+              .filter((r) => r.listId === m.patch.listId && r.id !== t!.id)
+              .map((r) => r.position || 0),
+          ) + 1;
+        t.orderVersion = (t.orderVersion || 0) + Number(!!t.listId);
       }
       Object.assign(t, m.patch);
     } else if (m.entity === "preference") {
@@ -243,8 +279,8 @@ export function projected(): Snapshot {
         l = {
           id: m.id,
           name: "",
-          ownerId: state.user!.id,
-          members: [state.user!.id],
+          ownerId: local.user!.id,
+          members: [local.user!.id],
           inbox: false,
           version: 0,
         };
@@ -334,6 +370,71 @@ export async function enqueue(
   void sync();
   return key;
 }
+export async function move(
+  kind: "task" | "subtask",
+  id: string,
+  anchorId: string,
+  side: "before" | "after",
+) {
+  const accountId = state.user?.id;
+  await update((s) => {
+    if (s.user?.id !== accountId)
+      throw new Error("Konto wurde gewechselt. Bitte neu laden.");
+    if (!s.user) throw new Error("Bitte anmelden.");
+    const snap = projected(s);
+    const row =
+      kind === "task"
+        ? snap.tasks.find((t) => t.id === id)
+        : snap.subtasks?.find((c) => c.id === id);
+    if (!row || row.deleted) throw new Error("Aufgabe nicht mehr vorhanden.");
+    const scopeId = "listId" in row ? row.listId : row.taskId;
+    if (kind === "subtask" && snap.tasks.find((t) => t.id === scopeId)?.deleted)
+      throw new Error("Hauptaufgabe liegt im Papierkorb.");
+    if (
+      s.queue.some(
+        (q) =>
+          q.entity === "order" &&
+          q.patch.kind === kind &&
+          q.patch.scopeId === scopeId &&
+          q.error,
+      )
+    )
+      throw new Error(
+        "Bitte zuerst den Sortierkonflikt unter Änderungen prüfen auflösen.",
+      );
+    const anchor = scopeRows(snap, { kind, scopeId }).find(
+      (r) => r.id === anchorId,
+    );
+    if (
+      !anchor ||
+      anchor.deleted ||
+      anchorId === id ||
+      (kind === "task" && anchor.done !== row.done)
+    )
+      throw new Error("Keine passende Nachbaraufgabe.");
+    const patch: OrderPatch = {
+      kind,
+      scopeId,
+      anchorId,
+      anchorVersion: anchor.orderVersion || 0,
+      side,
+      ...(kind === "task" ? { done: row.done } : {}),
+    };
+    s.queue.push({
+      entity: "order",
+      id,
+      version: row.orderVersion || 0,
+      key: crypto.randomUUID(),
+      device: s.device,
+      patch,
+      base: { ...row, anchorTitle: anchor.title },
+    });
+    return s;
+  });
+  syncStatus = navigator.onLine ? "Änderungen ausstehend" : "Offline";
+  emit();
+  void sync();
+}
 function connect() {
   if (events || !state.user) return;
   events = new EventSource("/api/events");
@@ -384,19 +485,26 @@ async function pull() {
     let revoked = 0;
     s.queue = s.queue.filter((m) => {
       const list =
-        m.entity === "list"
-          ? m.id
-          : m.entity === "task"
-            ? oldTasks.get(m.id)?.listId || String(m.patch.listId || "")
-            : oldTasks.get(m.entity === "subtask" ? parents.get(m.id)! : m.id)
-                ?.listId;
+        m.entity === "order"
+          ? m.patch.kind === "task"
+            ? String(m.patch.scopeId)
+            : oldTasks.get(String(m.patch.scopeId))?.listId
+          : m.entity === "list"
+            ? m.id
+            : m.entity === "task"
+              ? oldTasks.get(m.id)?.listId || String(m.patch.listId || "")
+              : oldTasks.get(m.entity === "subtask" ? parents.get(m.id)! : m.id)
+                  ?.listId;
       const keep = !list || allowed.has(list) || locallyCreatedLists.has(list);
       if (!keep) revoked++;
       return keep;
     });
     s.snapshot = snap;
-    if (revoked)
-      syncStatus = "Zugriff entzogen: lokale Kopien und Änderungen entfernt.";
+    if (revoked) {
+      s.notice =
+        "Zugriff entzogen: ausstehende Änderungen wurden nicht übernommen; lokale Kopien und Queue-Einträge wurden entfernt.";
+      syncStatus = s.notice;
+    }
     return s;
   });
 }
@@ -425,15 +533,36 @@ export async function sync() {
       for (const initial of [...state.queue]) {
         const m = state.queue.find((q) => q.key === initial.key);
         if (!m) continue;
-        const obj = m.entity + ":" + m.id;
+        const obj =
+          m.entity === "order"
+            ? "order:" + m.patch.kind + ":" + m.patch.scopeId
+            : m.entity + ":" + m.id;
         if (m.error || blocked.has(obj)) {
           blocked.add(obj);
           continue;
         }
+        if (
+          m.entity === "order" &&
+          state.queue
+            .slice(0, state.queue.indexOf(m))
+            .some(
+              (q) =>
+                (q.entity === "order" &&
+                  q.patch.kind === m.patch.kind &&
+                  q.patch.scopeId === m.patch.scopeId) ||
+                ((q.entity === "task" || q.entity === "subtask") &&
+                  (q.id === m.id ||
+                    q.id === m.patch.anchorId ||
+                    q.id === m.patch.scopeId)),
+            )
+        )
+          continue;
         const parentId =
-          m.entity === "subtask"
-            ? String(m.base?.taskId || m.patch.taskId || "")
-            : m.id;
+          m.entity === "order" && m.patch.kind === "subtask"
+            ? String(m.patch.scopeId)
+            : m.entity === "subtask"
+              ? String(m.base?.taskId || m.patch.taskId || "")
+              : m.id;
         if (
           (m.entity === "subtask" || m.entity === "completion") &&
           state.queue.some(
@@ -500,7 +629,9 @@ export async function sync() {
                     );
               for (const id of ids) affected.push({ entity: "subtask", id });
             }
-            for (const item of affected) {
+            for (const item of affected.filter(
+              (item) => item.entity !== "order",
+            )) {
               const next = s.queue.find(
                 (q) =>
                   q.id === item.id &&
@@ -563,6 +694,22 @@ export async function sync() {
               pending.error = (e as Error).message;
               pending.detail = e.detail;
               pending.status = e.code;
+              if (m.entity === "order") {
+                const following = s.queue.slice(s.queue.indexOf(pending) + 1);
+                for (const q of following) {
+                  if (
+                    q.entity === "order" &&
+                    q.patch.kind === m.patch.kind &&
+                    q.patch.scopeId === m.patch.scopeId &&
+                    !q.error
+                  ) {
+                    q.error =
+                      "Eine vorausgehende Sortieraktion wurde abgelehnt. Bitte auch diese Folgeaktion prüfen und die Position erneut wählen.";
+                    q.status = 409;
+                    q.detail = { causeKey: m.key };
+                  }
+                }
+              }
             }
             return s;
           });
@@ -678,6 +825,10 @@ export async function correctNewList(
 export async function resolveConflict(key: string, restore = false) {
   const m = state.queue.find((q) => q.key === key);
   if (!m) return;
+  if (m.entity === "order")
+    throw new Error(
+      "Bitte die Sortieraktion verwerfen und die Position erneut wählen.",
+    );
   const snapshot = state.snapshot;
   let version =
     m.entity === "task" || m.entity === "completion"
@@ -731,4 +882,11 @@ export async function resolveConflict(key: string, restore = false) {
     return s;
   });
   await sync();
+}
+
+export async function dismissNotice() {
+  await update((s) => {
+    delete s.notice;
+    return s;
+  });
 }

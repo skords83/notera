@@ -1,5 +1,8 @@
+import { ordered } from "../shared/order";
+import { moveAction, OrderAnnouncement, type Move } from "./Ordering";
+import { TaskActions } from "./TaskActions";
 import { useState, useRef, useEffect, useId, type FormEvent } from "react";
-import { CheckIcon, TrashIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@phosphor-icons/react";
 import { TITLE_MAX, type Task, type Subtask } from "../shared/model";
 import * as store from "./store";
 
@@ -9,12 +12,16 @@ function SubtaskRow({
   report,
   onRemoved,
   compact = false,
+  siblings,
+  move,
 }: {
   child: Subtask;
   disabled: boolean;
   report: (error: string) => void;
   onRemoved: () => void;
   compact?: boolean;
+  siblings: Subtask[];
+  move: Move;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(child.title);
@@ -42,7 +49,11 @@ function SubtaskRow({
     }
   }
   return (
-    <li className="subtask-row">
+    <li
+      className="subtask-row"
+      data-order-id={child.id}
+      data-order-scope={child.taskId}
+    >
       <button
         className="check-hit"
         disabled={disabled}
@@ -102,14 +113,21 @@ function SubtaskRow({
           {child.title}
         </button>
       )}
-      {!compact && (
-        <button
-          disabled={disabled}
-          aria-label={`${child.title} entfernen`}
-          onClick={() => void change({ deleted: true })}
-        >
-          <TrashIcon />
-        </button>
+      {!disabled && (
+        <TaskActions
+          id={`sub-${child.id}-${compact ? "inline" : "detail"}`}
+          title={child.title}
+          grip={{ id: child.id, scope: child.taskId, onMove: move }}
+          onRemove={!compact ? () => void change({ deleted: true }) : undefined}
+          ordering={{
+            up: siblings[siblings.indexOf(child) - 1]
+              ? () => move(siblings[siblings.indexOf(child) - 1].id, "before")
+              : undefined,
+            down: siblings[siblings.indexOf(child) + 1]
+              ? () => move(siblings[siblings.indexOf(child) + 1].id, "after")
+              : undefined,
+          }}
+        />
       )}
     </li>
   );
@@ -133,8 +151,10 @@ export function Subtasks({
   onAddStarted?: () => void;
   onCancelEmpty?: () => void;
 }) {
-  const children = (store.projected().subtasks || []).filter(
-    (c) => c.taskId === task.id && !c.deleted,
+  const children = ordered(
+    (store.projected().subtasks || []).filter(
+      (c) => c.taskId === task.id && !c.deleted,
+    ),
   );
   const id = useId();
   const [adding, setAdding] = useState(!inline);
@@ -181,6 +201,7 @@ export function Subtasks({
       aria-label={inline ? `Unteraufgaben von ${task.title}` : undefined}
       aria-labelledby={inline ? undefined : `${id}-heading`}
     >
+      {!inline && <OrderAnnouncement />}
       {!inline && (
         <>
           <h3 id={`${id}-heading`}>
@@ -221,6 +242,8 @@ export function Subtasks({
           <SubtaskRow
             key={child.id}
             child={child}
+            siblings={children}
+            move={moveAction("subtask", child.id, children, setError)}
             compact={inline}
             disabled={task.deleted}
             report={setError}

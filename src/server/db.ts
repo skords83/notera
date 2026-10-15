@@ -95,6 +95,21 @@ export class Database implements Query {
           await tx.query(statement);
       }
     });
+    await this.transaction(async (tx) => {
+      if (
+        !(await one(
+          tx,
+          "SELECT version FROM schema_migrations WHERE version=4",
+        ))
+      ) {
+        const sql = await readFile(
+          new URL("../../migrations/004_manual_order.sql", import.meta.url),
+          "utf8",
+        );
+        for (const statement of sql.split(";").filter((s) => s.trim()))
+          await tx.query(statement);
+      }
+    });
   }
 
   async close() {

@@ -1,3 +1,4 @@
+import { orderPatch, relocate } from "../shared/order";
 import { normalizeListColor } from "../shared/listColors";
 import { createHash } from "node:crypto";
 import {
@@ -36,6 +37,8 @@ export function task(row: any): Task {
   return {
     ...row.data,
     id: row.id,
+    position: row.position,
+    orderVersion: row.order_version,
     listId: row.list_id,
     version: row.version,
     createdBy: row.created_by,
@@ -79,6 +82,22 @@ export async function mutate(db: Database, user: string, input: unknown) {
     let existing: any;
     let parent: any;
     let before: any;
+    if (m.entity === "order") {
+      const p = orderPatch.parse(m.patch);
+      if (p.kind === "task") {
+        existing = await one(tx, "SELECT * FROM tasks WHERE id=$1", [m.id]);
+        if (!existing) fail(410, "Aufgabe nicht mehr vorhanden.");
+        await access(tx, user, existing.list_id);
+      } else {
+        existing = await one(tx, "SELECT * FROM subtasks WHERE id=$1", [m.id]);
+        if (!existing) fail(410, "Unteraufgabe nicht mehr vorhanden.");
+        parent = await one(tx, "SELECT * FROM tasks WHERE id=$1", [
+          existing.task_id,
+        ]);
+        if (!parent) fail(410, "Hauptaufgabe nicht mehr vorhanden.");
+        await access(tx, user, parent.list_id);
+      }
+    }
     if (m.entity === "completion" || m.entity === "subtask") {
       if (m.entity === "subtask")
         existing = await one(tx, "SELECT * FROM subtasks WHERE id=$1", [m.id]);
@@ -138,7 +157,79 @@ export async function mutate(db: Database, user: string, input: unknown) {
       return old.result;
     }
     let version = 1;
-    if (m.entity === "subtask") {
+    if (m.entity === "order") {
+      const p = orderPatch.parse(m.patch);
+      const table = p.kind === "task" ? "tasks" : "subtasks";
+      const scope = p.kind === "task" ? "list_id" : "task_id";
+      if (existing[scope] !== p.scopeId)
+        fail(
+          409,
+          "Aufgabe inzwischen verschoben. Sortierung bitte erneut wählen.",
+        );
+      if (existing.deleted_at || existing.data.deleted || parent?.deleted_at)
+        fail(409, "Gelöschte Aufgaben können nicht sortiert werden.");
+      const anchor = await one(
+        tx,
+        `SELECT * FROM ${table} WHERE id=$1 AND ${scope}=$2`,
+        [p.anchorId, p.scopeId],
+      );
+      if (
+        !anchor ||
+        anchor.deleted_at ||
+        anchor.data.deleted ||
+        m.id === p.anchorId
+      )
+        fail(
+          409,
+          "Nachbaraufgabe fehlt oder wurde verschoben. Sortierung bitte erneut wählen.",
+        );
+      if (
+        existing.order_version !== m.version ||
+        anchor.order_version !== p.anchorVersion
+      )
+        fail(
+          409,
+          "Reihenfolge inzwischen geändert. Sortierung bitte prüfen und erneut wählen.",
+          {
+            current: {
+              id: m.id,
+              position: existing.position,
+              orderVersion: existing.order_version,
+            },
+          },
+        );
+      if (
+        p.kind === "task" &&
+        (p.done === undefined ||
+          existing.data.done !== p.done ||
+          anchor.data.done !== p.done)
+      )
+        fail(
+          409,
+          "Statusbereich inzwischen geändert. Sortierung bitte erneut wählen.",
+        );
+      const rows = (
+        await tx.query(
+          `SELECT id FROM ${table} WHERE ${scope}=$1 ORDER BY position,id`,
+          [p.scopeId],
+        )
+      ).rows as { id: string }[];
+      for (const [index, row] of relocate(
+        rows,
+        m.id,
+        p.anchorId,
+        p.side,
+      ).entries())
+        await tx.query(`UPDATE ${table} SET position=$2 WHERE id=$1`, [
+          row.id,
+          index + 1,
+        ]);
+      version = existing.order_version + 1;
+      await tx.query(`UPDATE ${table} SET order_version=$2 WHERE id=$1`, [
+        m.id,
+        version,
+      ]);
+    } else if (m.entity === "subtask") {
       const p = subtaskPatch.parse(m.patch);
       if (parent.deleted_at)
         fail(
@@ -180,6 +271,11 @@ export async function mutate(db: Database, user: string, input: unknown) {
           JSON.stringify(fields),
         ],
       );
+      if (!existing)
+        await tx.query(
+          "UPDATE subtasks SET position=(SELECT coalesce(max(position),0)+1 FROM subtasks WHERE task_id=$2 AND id<>$1) WHERE id=$1",
+          [m.id, parent.id],
+        );
       if (
         (!existing || p.done === false) &&
         !data.deleted &&
@@ -451,6 +547,12 @@ export async function mutate(db: Database, user: string, input: unknown) {
           data.deleted ? existing.deleted_at || new Date().toISOString() : null,
         ],
       );
+      if (!existing.version || existing.list_id !== data.listId) {
+        await tx.query(
+          "UPDATE tasks SET position=(SELECT coalesce(max(position),0)+1 FROM tasks WHERE list_id=$2 AND id<>$1),order_version=order_version+$3 WHERE id=$1",
+          [m.id, data.listId, existing.version ? 1 : 0],
+        );
+      }
       // Moving a task also removes personal data belonging to users without target access.
       await tx.query(
         "DELETE FROM preferences WHERE task_id=$1 AND user_id NOT IN (SELECT user_id FROM memberships WHERE list_id=$2)",
@@ -482,6 +584,7 @@ export async function mutate(db: Database, user: string, input: unknown) {
     }
     const cursor = await change(tx, m.entity, m.id);
     const result = {
+      ...(m.entity === "order" ? { entity: "order" } : {}),
       version,
       cursor,
       ...(before ? { before, taskId: m.id } : {}),
@@ -546,6 +649,12 @@ export async function snapshot(
       [user, device, clock.cursor],
     );
     return {
+      orderReceipts: (
+        await tx.query(
+          "SELECT key FROM mutations WHERE user_id=$1 AND result->>'entity'='order'",
+          [user],
+        )
+      ).rows.map((r) => r.key as string),
       userId: user,
       cursor: Number(clock.cursor),
       reset: cursor < Number(clock.floor) || cursor > Number(clock.cursor),
@@ -562,6 +671,8 @@ export async function snapshot(
         taskId: s.task_id,
         version: s.version,
         createdAt: new Date(s.created_at).toISOString(),
+        position: s.position,
+        orderVersion: s.order_version,
       })),
       preferences: Object.fromEntries(
         prefs.map((p) => [p.task_id, { ...p.data, version: p.version }]),

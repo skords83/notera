@@ -1,3 +1,5 @@
+import { scopeRows } from "../shared/order";
+import { moveAction, OrderAnnouncement } from "./Ordering";
 import {
   listColors,
   normalizeListColor,
@@ -252,6 +254,7 @@ function App() {
       } as TaskList;
     })();
   const syncStatus = store.status();
+  const manualOrder = !query && !!(list || (view === "Eingang" && inbox));
   const tasks = data.tasks
     .filter((t) => {
       if (view === "Papierkorb") return t.deleted;
@@ -274,11 +277,17 @@ function App() {
           .toLocaleLowerCase("de")
           .includes(query.toLocaleLowerCase("de")),
     )
-    .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+    .sort((a, b) =>
+      manualOrder
+        ? (a.position ?? 0) - (b.position ?? 0) || a.id.localeCompare(b.id)
+        : a.updatedAt.localeCompare(b.updatedAt),
+    );
   const sections =
     view === "Heute" && !query
       ? ["Überfällig", "Heute", "Nicht geschafft"]
-      : [""];
+      : manualOrder && showDone
+        ? ["Offen", "Erledigt"]
+        : [""];
   async function add(e: FormEvent) {
     e.preventDefault();
     const parsed = taskPatch.safeParse({ title });
@@ -504,6 +513,17 @@ function App() {
               )}
             </>
           )}
+          {state.notice && (
+            <div className="notice error" role="alert">
+              {state.notice}
+              <button
+                aria-label="Hinweis schließen"
+                onClick={() => void store.dismissNotice()}
+              >
+                <XIcon />
+              </button>
+            </div>
+          )}
           {error && (
             <div className="notice error" role="alert">
               {error}
@@ -537,18 +557,22 @@ function App() {
               </label>
             )}
           </div>
+          <OrderAnnouncement />
           {sections.map((section) => {
-            const rows = section
-              ? tasks.filter(
-                  (t) =>
-                    todaySection(
-                      t,
-                      data.preferences[t.id],
-                      date,
-                      user.timezone,
-                    ) === section,
-                )
-              : tasks;
+            const rows =
+              manualOrder && section
+                ? tasks.filter((t) => t.done === (section === "Erledigt"))
+                : section
+                  ? tasks.filter(
+                      (t) =>
+                        todaySection(
+                          t,
+                          data.preferences[t.id],
+                          date,
+                          user.timezone,
+                        ) === section,
+                    )
+                  : tasks;
             return (
               <section key={section}>
                 {section && rows.length > 0 && (
@@ -558,11 +582,20 @@ function App() {
                   const children = (data.subtasks || []).filter(
                     (c) => c.taskId === t.id && !c.deleted,
                   );
+                  const siblings = rows.filter((r) => r.done === t.done);
+                  const index = siblings.findIndex((r) => r.id === t.id);
+                  const move = moveAction("task", t.id, siblings, setError);
+                  const orderScope = t.listId + ":" + t.done;
                   const expanded = expandedTasks.has(t.id);
                   const regionId = `task-subtasks-${t.id}`;
                   const toggleLabel = `Unteraufgaben von „${t.title}“ ${expanded ? "zuklappen" : "aufklappen"}`;
                   return (
-                    <div className="task-item" key={t.id}>
+                    <div
+                      className="task-item"
+                      key={t.id}
+                      data-order-id={t.id}
+                      data-order-scope={manualOrder ? orderScope : undefined}
+                    >
                       <div className={"task-row " + (t.done ? "done" : "")}>
                         {children.length > 0 || expanded ? (
                           <button
@@ -718,6 +751,33 @@ function App() {
                           <TaskActions
                             title={t.title}
                             id={t.id}
+                            grip={
+                              manualOrder
+                                ? { id: t.id, scope: orderScope, onMove: move }
+                                : undefined
+                            }
+                            ordering={
+                              manualOrder
+                                ? {
+                                    up:
+                                      index > 0
+                                        ? () =>
+                                            move(
+                                              siblings[index - 1].id,
+                                              "before",
+                                            )
+                                        : undefined,
+                                    down:
+                                      index < siblings.length - 1
+                                        ? () =>
+                                            move(
+                                              siblings[index + 1].id,
+                                              "after",
+                                            )
+                                        : undefined,
+                                  }
+                                : undefined
+                            }
                             onAdd={() => {
                               setExpandedTasks((previous) =>
                                 new Set(previous).add(t.id),
@@ -915,20 +975,30 @@ function App() {
               <div className="conflict" key={q.key}>
                 <strong>{q.error}</strong>
                 <h3>Deine Änderung</h3>
-                <ConflictValues value={q.patch} />
+                {q.entity === "order" ? (
+                  <OrderConflictValues pending={q} />
+                ) : (
+                  <ConflictValues value={q.patch} />
+                )}
                 <h3>Serverfassung</h3>
-                <ConflictValues
-                  value={
-                    q.detail?.current ??
-                    (q.entity === "preference"
-                      ? state.snapshot.preferences[q.id]
-                      : q.entity === "list"
-                        ? state.snapshot.lists.find((l) => l.id === q.id)
-                        : q.entity === "subtask"
-                          ? state.snapshot.subtasks?.find((c) => c.id === q.id)
-                          : state.snapshot.tasks.find((t) => t.id === q.id))
-                  }
-                />
+                {q.entity === "order" ? (
+                  <OrderConflictValues pending={q} server />
+                ) : (
+                  <ConflictValues
+                    value={
+                      q.detail?.current ??
+                      (q.entity === "preference"
+                        ? state.snapshot.preferences[q.id]
+                        : q.entity === "list"
+                          ? state.snapshot.lists.find((l) => l.id === q.id)
+                          : q.entity === "subtask"
+                            ? state.snapshot.subtasks?.find(
+                                (c) => c.id === q.id,
+                              )
+                            : state.snapshot.tasks.find((t) => t.id === q.id))
+                    }
+                  />
+                )}
                 <div className="actions">
                   <button
                     onClick={() =>
@@ -958,6 +1028,13 @@ function App() {
                     >
                       Liste korrigieren
                     </button>
+                  ) : q.entity === "order" ? (
+                    <p>
+                      Die Verschiebung wurde nicht übernommen. Serverfassung
+                      behalten und die gewünschte Position erneut wählen.
+                      Nachfolgende ausstehende Sortieraktionen bleiben bis zur
+                      Klärung blockiert.
+                    </p>
                   ) : q.entity === "completion" ? (
                     <p>
                       Serverfassung behalten und die Aktion anschließend an der
@@ -999,6 +1076,52 @@ function App() {
         </Modal>
       )}
     </div>
+  );
+}
+function OrderConflictValues({
+  pending,
+  server = false,
+}: {
+  pending: store.Pending;
+  server?: boolean;
+}) {
+  const data = store.getState().snapshot;
+  const kind = pending.patch.kind === "subtask" ? "subtask" : "task";
+  const all = kind === "task" ? data.tasks : data.subtasks || [];
+  const row = all.find((r) => r.id === pending.id);
+  const title = String(pending.base?.title || row?.title || "Aufgabe");
+  if (!server) {
+    const anchor = all.find((r) => r.id === pending.patch.anchorId);
+    return (
+      <p>
+        „{title}“ {pending.patch.side === "before" ? "vor" : "nach"} „
+        {anchor?.title ||
+          String(
+            pending.base?.anchorTitle || "nicht mehr verfügbarem Nachbarn",
+          )}
+        “ verschieben.
+      </p>
+    );
+  }
+  if (!row || row.deleted)
+    return <p>„{title}“ ist nicht mehr verfügbar oder gelöscht.</p>;
+  const scopeId = "listId" in row ? row.listId : row.taskId;
+  if (kind === "subtask" && data.tasks.find((t) => t.id === scopeId)?.deleted)
+    return <p>Die Hauptaufgabe liegt im Papierkorb.</p>;
+  const siblings = scopeRows(data, { kind, scopeId }).filter(
+    (r) => !r.deleted && (kind === "subtask" || r.done === row.done),
+  );
+  return (
+    <p>
+      „{row.title}“: Aktuelle Position{" "}
+      {siblings.findIndex((r) => r.id === row.id) + 1} von {siblings.length}
+      {kind === "task"
+        ? row.done
+          ? " im erledigten Bereich"
+          : " im offenen Bereich"
+        : ""}
+      .
+    </p>
   );
 }
 function ConflictValues({
