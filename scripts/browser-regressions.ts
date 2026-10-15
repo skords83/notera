@@ -188,12 +188,65 @@ export async function browserRegressions(page: Page, context: BrowserContext) {
   await page.setViewportSize({ width: 1360, height: 900 });
   await page.clock.install();
   const toast = page.locator(".toast");
-  await page
-    .getByRole("button", {
-      name: "Fokus und Rückgängig erledigen",
-      exact: true,
-    })
-    .click();
+  // This scenario tests toast timers, not overlapping status mutations. Check each
+  // actual server acknowledgement before the next action or the next scenario.
+  async function acknowledged(action: string, click: () => Promise<void>) {
+    const response = page.waitForResponse((r) => {
+      if (
+        !r.url().endsWith("/api/mutations") ||
+        r.request().method() !== "POST"
+      )
+        return false;
+      const m = r.request().postDataJSON();
+      return m.entity === "completion" && m.patch.action === action;
+    });
+    const [result] = await Promise.all([response, click()]);
+    expect(result.ok(), await result.text()).toBe(true);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            new Promise<number>((resolve, reject) => {
+              const opening = indexedDB.open("notera-v1");
+              opening.onerror = () => reject(opening.error);
+              opening.onsuccess = () => {
+                const db = opening.result,
+                  request = db
+                    .transaction("state")
+                    .objectStore("state")
+                    .get("active");
+                request.onsuccess = () => {
+                  resolve(request.result?.queue.length ?? 0);
+                  db.close();
+                };
+                request.onerror = () => {
+                  reject(request.error);
+                  db.close();
+                };
+              };
+            }),
+        ),
+      )
+      .toBe(0);
+    await synced();
+  }
+  const complete = () =>
+    page
+      .getByRole("button", {
+        name: "Fokus und Rückgängig erledigen",
+        exact: true,
+      })
+      .click();
+  const reopen = () =>
+    page
+      .getByRole("button", {
+        name: "Fokus und Rückgängig wieder öffnen",
+        exact: true,
+      })
+      .click();
+  const undo = () =>
+    toast.getByRole("button", { name: "Rückgängig", exact: true }).click();
+  await acknowledged("complete", complete);
   await expect(toast).toBeVisible();
   await toast.hover();
   await page.clock.fastForward(9000);
@@ -202,43 +255,28 @@ export async function browserRegressions(page: Page, context: BrowserContext) {
   await page.mouse.move(0, 0);
   await page.clock.fastForward(9000);
   await expect(toast).toBeVisible();
-  await toast.getByRole("button", { name: "Rückgängig", exact: true }).click();
+  await acknowledged("undo", undo);
   await expect(
     page.getByText("Fokus und Rückgängig", { exact: true }),
   ).toBeVisible();
   // An unrelated rerender does not restart the timer; a NEW completion does.
   await page.getByLabel("Erledigte zeigen", { exact: true }).check();
-  await page
-    .getByRole("button", {
-      name: "Fokus und Rückgängig erledigen",
-      exact: true,
-    })
-    .click();
+  await acknowledged("complete", complete);
   await expect(toast).toContainText("Erledigt");
   await page.mouse.move(0, 0);
   await page.clock.fastForward(5000);
-  await page
-    .getByRole("button", {
-      name: "Fokus und Rückgängig wieder öffnen",
-      exact: true,
-    })
-    .click();
+  await acknowledged("reopen", reopen);
   await expect(toast).toContainText("Wieder geöffnet");
   await page.clock.fastForward(4000);
   await expect(toast).toBeVisible();
-  await toast.getByRole("button", { name: "Rückgängig", exact: true }).click();
+  await acknowledged("undo", undo);
   await expect(
     page.getByRole("button", {
       name: "Fokus und Rückgängig wieder öffnen",
       exact: true,
     }),
   ).toBeVisible();
-  await page
-    .getByRole("button", {
-      name: "Fokus und Rückgängig wieder öffnen",
-      exact: true,
-    })
-    .click();
+  await acknowledged("reopen", reopen);
   await expect(toast).toBeVisible();
   await page.mouse.move(0, 0);
   await page.clock.fastForward(8100);
