@@ -1000,7 +1000,7 @@ dialog .login {
   left: 0;
   right: 0;
   height: 3px;
-  background: var(--accent, #90b7ff);
+  background: var(--blue);
   z-index: 10001;
   pointer-events: none;
 }
