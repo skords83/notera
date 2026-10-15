@@ -1,0 +1,57 @@
+name: notera
+networks:
+  proxy:
+    external: true
+  database:
+    internal: true
+volumes:
+  notera_postgres:
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: notera-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: notera
+      POSTGRES_DB: notera
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a random hex database password}
+    volumes:
+      - notera_postgres:/var/lib/postgresql/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notera -d notera"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    labels:
+      - "traefik.enable=false"
+  app:
+    image: ${NOTERA_IMAGE:-ghcr.io/skords83/notera:latest}
+    container_name: notera-app
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://notera:${POSTGRES_PASSWORD:?Set a random hex database password}@db:5432/notera
+      APP_ORIGIN: ${APP_ORIGIN:-https://notera.skords.de}
+      TRASH_DAYS: ${TRASH_DAYS:-30}
+    networks:
+      - proxy
+      - database
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.notera.rule=Host(`${NOTERA_DOMAIN:-notera.skords.de}`)"
+      - "traefik.http.routers.notera.entrypoints=websecure"
+      - "traefik.http.routers.notera.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.notera.service=notera"
+      - "traefik.http.services.notera.loadbalancer.server.port=3000"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.notera.middlewares=crowdsec@docker"
