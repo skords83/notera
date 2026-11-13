@@ -20,7 +20,7 @@ Alle Antworten unter `/api` sind `no-store`. Alle schreibenden Browseranfragen v
 - `POST /api/logout`: Sitzung löschen.
 - `GET /api/me`: eigener Benutzer.
 - `GET /api/sync?cursor=N&device=UUID`: autorisierter vollständiger Stand und monotoner Cursor, `reset` bei veraltetem/unpassendem Cursor.
-- `POST /api/mutations`: `{key,device,entity,id,version,patch}`. Entitäten `task`, `preference`, `list`. Version 0 bedeutet Anlegen.
+- `POST /api/mutations`: `{key,device,entity,id,version,patch}`. Entitäten `task`, `preference`, `list`, `subtask`, `completion`, `order`. Version 0 bedeutet bei anlegbaren Entitäten Anlegen; `completion` adressiert eine bestehende Hauptaufgabe, `order.version` ist die gesonderte Reihenfolgeversion des bewegten Haupt-/Unteraufgabenobjekts.
 - `GET /api/events`: SSE-Cursor/Heartbeat ohne Aufgabeninhalte.
 - `GET /api/health`: Datenbank-Liveness, ohne Anmeldung.
 
@@ -34,7 +34,7 @@ Ein globales Journal speichert Ereignisse und unabhängige Lösch-Tombstones. Na
 
 Aufgaben und Präferenzen speichern je Feld die zuletzt ändernde Version. Bei veralteter Objektversion dürfen nur inzwischen unveränderte oder identisch gesetzte Felder automatisch zusammengeführt werden. Verschieben und Löschen sind strukturell und konservativer. Konfliktantworten enthalten die autorisierte Serverfassung. Ein abgelaufener Zugriff wird vor Idempotenz-Wiederholung geprüft.
 
-Clientseitig werden Snapshot, Cursor und Queue in derselben IndexedDB-Transaktion gespeichert. Nach Serverbestätigung wird zuerst der autorisierte Snapshot geladen; erst dann werden Snapshot und Entfernung des Queue-Eintrags gemeinsam committed. Ein Abbruch vorher lässt den Idempotenzschlüssel zur sicheren Wiederholung erhalten. Nachfolgende Offline-Schritte werden nur weitergeführt, wenn ihre ursprünglichen Feldwerte zur bestätigten Fassung passen; andernfalls wird auch dort ein Konflikt erhalten.
+Clientseitig werden Snapshot, Cursor und Queue in derselben IndexedDB-Transaktion gespeichert. Nach Serverbestätigung wird zuerst der autorisierte Snapshot geladen; erst dann werden Snapshot und Entfernung des Queue-Eintrags gemeinsam committed. Ein Abbruch vorher lässt den Idempotenzschlüssel zur sicheren Wiederholung erhalten. Nachfolgende Offline-Schritte werden nur weitergeführt, wenn ihre ursprünglichen Feldwerte zur bestätigten Fassung passen; andernfalls wird auch dort ein Konflikt erhalten. Während eines laufenden Syncs neu gespeicherte Mutationen merken einen weiteren Durchgang unter derselben Web-Lock-Sperre vor. Damit hängt sofortiges Undo nach Beginn der Sendeschleife nicht vom nächsten SSE-/Timerimpuls ab. Ein fehlgeschlagener Request beendet diesen Ablauf ohne automatische Wiederholung. Undo bleibt eine beleggebundene Serveraktion mit unveränderter Statuskonfliktprüfung.
 
 Web Locks serialisieren Sync zwischen Tabs desselben Ursprungs; IndexedDB-Transaktionen verhindern verlorene Queue-Einträge. BroadcastChannel aktualisiert offene Tabs. Serverrechte und Objektversionen bleiben die maßgebliche Sicherung bei mehreren Geräten. Ein Konto-/Sessionwechsel wird vor dem Übernehmen eines Snapshots geprüft. Verschieben räumt persönliche Präferenzen/Erinnerungen inzwischen unberechtigter Benutzer auf.
 
@@ -65,7 +65,7 @@ Die Auswahl verwendet native Radiobuttons (Pfeiltasten, Tab, Screenreader-Namen)
 
 ## Unteraufgaben
 
-Migration 003 ergänzt `subtasks` mit UUID, unveränderlichem `task_id`-Fremdschlüssel (ON DELETE CASCADE), eigener Feldversionierung und serverseitigem Erstellungszeitpunkt. Der Fremdschlüssel zeigt ausschließlich auf `tasks`; Verschachtelung und Zyklen sind dadurch ausgeschlossen. Unteraufgaben enthalten nur Titel, Erledigungs- und Entfernungsstatus. Entfernte Schritte bleiben als nicht editierbare Tombstones bis zum endgültigen Löschen der Hauptaufgabe erhalten. Der autorisierte Snapshot transportiert sie separat und sortiert nach Erstellungszeit/ID. Die UI zeigt nur aktive Schritte innerhalb ihrer Aufgabe.
+Migration 003 ergänzt `subtasks` mit UUID, unveränderlichem `task_id`-Fremdschlüssel (ON DELETE CASCADE), eigener Feldversionierung und serverseitigem Erstellungszeitpunkt. Der Fremdschlüssel zeigt ausschließlich auf `tasks`; Verschachtelung und Zyklen sind dadurch ausgeschlossen. Unteraufgaben enthalten nur Titel, Erledigungs- und Entfernungsstatus. Entfernte Schritte bleiben als nicht editierbare Tombstones bis zum endgültigen Löschen der Hauptaufgabe erhalten. Der autorisierte Snapshot transportiert sie separat samt manueller Position und Reihenfolgeversion. Die UI sortiert aktive Schritte innerhalb ihrer Aufgabe nach Position/ID; die Erstellungszeit dient nur der Initialisierung alter Daten.
 
 `subtask`-Mutationen nutzen dieselbe Queue, Idempotenzbelege, Feldkonflikte und Transaktionssperre wie Aufgaben. Zugriff folgt immer der aktuellen Hauptaufgabe/Listenzugehörigkeit, auch vor Replay. Neue Schritte erfordern eine existierende Hauptaufgabe; sie können weder gelöschte Eltern ersetzen noch fremde Eltern referenzieren. Schritte im Papierkorb sind nicht editierbar. Das Verschieben benötigt wie bisher Quell- und Zielrechte und ändert keine Kind-IDs.
 
@@ -73,7 +73,7 @@ Migration 003 ergänzt `subtasks` mit UUID, unveränderlichem `task_id`-Fremdsch
 
 Die optimistische Projektion bildet diese Regeln ab. Lokale Undo-Daten liegen mit der Queue in IndexedDB; nach Bestätigung dient der persistierte Serverbeleg als Grundlage. Bestätigte Mutationen laden erst einen autorisierten Snapshot und entfernen ihren Queue-Eintrag anschließend in derselben IndexedDB-Transaktion. Abhängige Schritte warten auf die Hauptaufgabenanlage; Statusaktionen warten auf vorausgehende Schritte. Nachfolgende Mutationen werden nur bei passenden Feldwerten auf bestätigte Versionen gesetzt. Konflikte sind einzeln auflösbar; bei atomaren Statuskonflikten verwirft man die abgelehnte Aktion und bestätigt den aktuellen Stand neu. Rechteentzug bereinigt auch rein lokale Kinder.
 
-Backup `notera-2` enthält `subtasks` nach `tasks`; ein altes Programm lehnt das neue Format ab, statt Schritte still zu verlieren. Restore akzeptiert zusätzlich `notera-1` ohne Kindtabelle. Beide laufen vollständig in einer Transaktion. Der bestehende GitHub-Actions-Workflow bleibt der Prüf- und Containerweg; PRs veröffentlichen weiterhin keine Images.
+Aktuelle Backups nutzen `notera-3` mit Unteraufgaben, manuellen Positionen, Reihenfolgeversionen und Belegen. Restore akzeptiert außerdem `notera-2` mit Unteraufgaben und `notera-1` ohne Kindtabelle; alte Reihenfolgen werden deterministisch initialisiert. Sicherung und Restore laufen jeweils vollständig in einer Transaktion. Der bestehende GitHub-Actions-Workflow bleibt der Prüf- und Containerweg; PRs veröffentlichen weiterhin keine Images.
 
 ## Aufklappbare Unteraufgabenansicht
 

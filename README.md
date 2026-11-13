@@ -2,7 +2,7 @@
 
 Selbst gehostete Aufgaben-App für zwei Personen. React/Vite-PWA, Fastify-API und PostgreSQL. Darkmode, optional Hell- und Systemmodus. Der Entwicklungsauftrag und die unveränderte Designreferenz liegen unter [`docs/reference/`](docs/reference/).
 
-**Stand: Stufe A implementiert, Abnahme noch nicht vollständig.** Automatisierte Domänen-, API-, Offline-Queue- und Browserregressionen bestehen in GitHub Actions. Manuelle Screenshot-/Screenreader- und Android-Prüfungen bleiben offen. Docker-Build, Compose-Start mit PostgreSQL und Kontopersistenz nach Containerneustart wurden inzwischen in GitHub Actions erfolgreich geprüft. Listenfarben und Unteraufgaben sind als gesondert beauftragte Erweiterungen umgesetzt; weitere Funktionen aus Stufe B sind nicht enthalten. Details: [Prüfbericht](docs/STATUS.md).
+**Stand: Stufe A implementiert, Abnahme noch nicht vollständig.** Automatisierte Domänen-, API-, Offline-Queue- und Browserregressionen bestehen in GitHub Actions. Manuelle Screenshot-/Screenreader- und Android-Prüfungen bleiben offen. Docker-Build, Compose-Start mit PostgreSQL und Kontopersistenz nach Containerneustart wurden inzwischen in GitHub Actions erfolgreich geprüft. Listenfarben, Unteraufgaben, gemeinsame manuelle Reihenfolge und persönliche Markierung sind umgesetzt; weitere Funktionen aus Stufe B sind nicht enthalten. Details: [Prüfbericht](docs/STATUS.md).
 
 ## Lokal starten
 
@@ -106,7 +106,7 @@ docker compose exec -T db pg_dump -U notera -d notera -Fc > notera.dump
 docker compose exec -T db pg_restore -U notera -d notera --no-owner < notera.dump
 ```
 
-Die portablen JSON-Sicherungen sind für eine kleine persönliche Installation gedacht. Große Installationen sollten `pg_dump` und dessen Restore regelmäßig prüfen. Ein Restore in einen neuen PGlite-Datenordner wurde automatisiert geprüft; ein Restore mit dem PostgreSQL-Container ist noch offen.
+Die portablen JSON-Sicherungen sind für eine kleine persönliche Installation gedacht. Große Installationen sollten `pg_dump` und dessen Restore regelmäßig prüfen. Restore in frische PGlite-Datenordner und PostgreSQL-Testdatenbanken wird automatisiert geprüft, einschließlich Upgrade alter Formate, Unteraufgaben und manueller Positionen. Containerstart und Neustart mit PostgreSQL sind ebenfalls geprüft. Dies ersetzt weder die Wiederherstellung einer tatsächlichen produktiven Sicherung noch eine Abnahme des installierten VPS-Stands; Details im [Prüfbericht](docs/STATUS.md).
 
 ## Aktualisierung
 
