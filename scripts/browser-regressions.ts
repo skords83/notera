@@ -1,3 +1,4 @@
+import { immediateUndo, syncMetadata } from "./browser-sync";
 import { expect, type Page, type BrowserContext } from "@playwright/test";
 
 /** Runs only against the disposable database started by browser-test.ts. */
@@ -186,6 +187,19 @@ export async function browserRegressions(page: Page, context: BrowserContext) {
     });
   }
   await page.setViewportSize({ width: 1360, height: 900 });
+  for (const phase of ["request", "response", "response"] as const) {
+    await immediateUndo(
+      page,
+      () =>
+        page
+          .getByRole("button", {
+            name: "Fokus und Rückgängig erledigen",
+            exact: true,
+          })
+          .click(),
+      phase,
+    );
+  }
   await page.clock.install();
   const toast = page.locator(".toast");
   // This scenario tests toast timers, not overlapping status mutations. Check each
@@ -200,7 +214,15 @@ export async function browserRegressions(page: Page, context: BrowserContext) {
       const m = r.request().postDataJSON();
       return m.entity === "completion" && m.patch.action === action;
     });
-    const [result] = await Promise.all([response, click()]);
+    const [result] = await Promise.all([response, click()]).catch(
+      async (error) => {
+        console.error(
+          "Timer regression metadata",
+          JSON.stringify(await syncMetadata(page)),
+        );
+        throw error;
+      },
+    );
     expect(result.ok(), await result.text()).toBe(true);
     await expect
       .poll(() =>

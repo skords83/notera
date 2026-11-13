@@ -189,6 +189,36 @@ test("personal today selection and flags never alter the other member", async ()
   );
 });
 test("validation rejects empty titles, invalid assignment, dangerous URLs and ambiguous times", async () => {
+  const bounded = randomUUID();
+  const links = Array.from(
+    { length: 20 },
+    (_, i) => `https://example.com/${i}`,
+  );
+  await mutate(
+    db,
+    a,
+    mutation("task", bounded, {
+      title: "Collection limits",
+      listId: inbox,
+      links,
+    }),
+  );
+  await assert.rejects(
+    mutate(
+      db,
+      a,
+      mutation(
+        "task",
+        bounded,
+        { links: [...links, "https://example.com/21"] },
+        1,
+      ),
+    ),
+  );
+  assert.deepEqual(
+    (await snap()).tasks.find((t) => t.id === bounded)!.links,
+    links,
+  );
   for (const title of ["   ", "x".repeat(241)])
     await assert.rejects(
       mutate(db, a, mutation("task", randomUUID(), { title, listId: inbox })),

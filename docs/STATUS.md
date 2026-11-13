@@ -1,3 +1,13 @@
+# Aktueller Prüfstand – 13. November 2026
+
+Basis: `origin/main` bei `37977b1ded4fafd278d35c9ecf6a916a664f5bf6`, weiterhin aktuell beim Fetch. Saubere Arbeitskopie; keine `AGENTS.md` vorhanden. Korrekturbranch `fix/audit-sync-review`. Der ursprüngliche Entwicklungsauftrag unter `docs/reference/` bleibt unverändert. Die älteren datierten Abschnitte unten sind Entwicklungsverlauf, keine aktuellen Freigaben.
+
+Details zu Advisories, Reproduktion und aktuellen Prüfungen stehen in [Bestandsaufnahme-Korrektur](AUDIT-2026-11.md).
+
+Automatisiert geprüft sind PGlite- und PostgreSQL-Migrationen, JSON-Backup/Restore einschließlich alter Formate und manueller Positionen sowie Containerstart/Neustart. Echte Android-Hardware und Screenreader, physischer Zwei-Geräte-Abgleich, Wiederherstellung einer tatsächlichen produktiven Sicherung und der produktiv installierte Versionsstand bleiben unbestätigt. Es gab keinen Merge oder Rollout. Unteraufgaben zwischen Hauptaufgaben verschieben und die native Android-App bleiben Folgearbeiten.
+
+---
+
 # Manuelle Reihenfolge – 15. Oktober 2026
 
 Basis: `main` bei `8641d90` (PR #7). Eigener Branch `feat/manual-task-order`. Arbeitskopie dauerhaft unter `.worktrees/manual-order`, nachdem die ursprüngliche `/tmp`-Kopie bei einer Sitzungsunterbrechung verloren ging. Keine Änderungen an Migrationen 001–003, keine neuen Abhängigkeiten, keine Tags/Filter/Wiederholungen/Push-Funktion, kein Merge oder produktiver Rollout.
@@ -153,7 +163,7 @@ Das ergänzt die lokalen Tests um einen echten Containerlauf. Es ersetzt weder d
 
 - Lokaler Webserver: Start versucht, `listen EPERM 127.0.0.1:3000`. Die Ausführungsumgebung untersagt lokale Sockets.
 - Chromium: Start versucht, `setsockopt: Operation not permitted`, Prozess beendet. Deshalb keine durchgeführte visuelle Desktop-/360px-/320px-Kontrolle, keine geprüften Screenshots, keine reale Tastatur-/Touch-Abnahme.
-- Docker ist lokal nicht installiert. Inzwischen wurden Docker-Build, Compose-Start mit PostgreSQL, Bootstrap-CLI und Kontopersistenz nach Containerneustart in GitHub Actions erfolgreich geprüft. Container-Backup/Restore und ein umfassender Datenvergleich nach Neustart bleiben offen.
+- Docker ist lokal nicht installiert. Inzwischen wurden Docker-Build, Compose-Start mit PostgreSQL, Bootstrap-CLI und Kontopersistenz nach Containerneustart in GitHub Actions erfolgreich geprüft. Diese historische Einschränkung wurde durch die später ergänzte automatisierte PostgreSQL-Backup/Restore-Prüfung und die unten verlinkten CI-Läufe überholt. Die Wiederherstellung einer tatsächlichen produktiven Sicherung bleibt separat offen.
 - Echter Abgleich zwischen PC und Android, installierte Android-PWA, Offline-App-Neustart sowie Bildschirmtastatur nicht geprüft.
 - Der vorbereitete `npm run test:browser`-Lauf wurde wegen dieser Umgebungssperren nicht vollständig ausgeführt. Er ist ein Startpunkt für echte Browserchecks, keine Behauptung bestandener Abnahme.
 - Keine produktive Veröffentlichung und keine Änderung an einem laufenden Server.
