@@ -1,3 +1,4 @@
+import { immediateUndo } from "./browser-sync";
 import { expect, type Page, type BrowserContext } from "@playwright/test";
 import { addTask } from "./browser-tasks";
 export async function subtaskChecks(page: Page, context: BrowserContext) {
@@ -76,16 +77,25 @@ export async function subtaskChecks(page: Page, context: BrowserContext) {
     .click();
   await expect(page.getByRole("dialog")).toContainText("2 offene Schritte");
   await page.getByRole("button", { name: "Abbrechen", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Schatzsuche planen erledigen", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Alles erledigen", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Rückgängig", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Synchronisiert", exact: true }),
-  ).toBeVisible();
+  for (const phase of ["request", "response", "response"] as const) {
+    await page
+      .getByRole("button", {
+        name: "Schatzsuche planen erledigen",
+        exact: true,
+      })
+      .click();
+    await immediateUndo(
+      page,
+      () =>
+        page
+          .getByRole("button", { name: "Alles erledigen", exact: true })
+          .click(),
+      phase,
+    );
+    await expect(
+      page.getByRole("button", { name: "Synchronisiert", exact: true }),
+    ).toBeVisible();
+  }
   await page.getByText("Schatzsuche planen", { exact: true }).click();
   await expect(page.locator("dialog .subtasks h3")).toContainText("1 von 3");
   await page

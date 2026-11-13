@@ -29,6 +29,7 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
   let cookie = "";
   let loseResponse = false;
   let rejectServer = false;
+  let holdResponse: (() => Promise<void>) | undefined;
   Object.defineProperty(globalThis, "navigator", {
     value: {
       get onLine() {
@@ -79,6 +80,7 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
       headers: { ...options.headers, origin: "http://notera.test", cookie },
       payload: options.body,
     });
+    if (path === "/api/mutations" && holdResponse) await holdResponse();
     const setCookie = response.headers["set-cookie"];
     if (setCookie) cookie = String(setCookie).split(";")[0];
     if (loseResponse && path === "/api/mutations") {
@@ -272,6 +274,138 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
       "Remote notes",
     );
     await store.discard(store.getState().queue[0].key);
+    // Hold real API responses, so immediate Undo cannot rely on timers or SSE.
+    for (const withChildren of [false, true]) {
+      const immediate = randomUUID(),
+        openChild = randomUUID(),
+        doneChild = randomUUID();
+      await store.enqueue("task", immediate, {
+        title: "Immediate undo",
+        listId: inbox,
+      });
+      await store.sync();
+      if (withChildren) {
+        await store.enqueue("subtask", openChild, {
+          taskId: immediate,
+          title: "Open",
+        });
+        await store.sync();
+        await store.enqueue("subtask", doneChild, {
+          taskId: immediate,
+          title: "Done",
+          done: true,
+        });
+        await store.sync();
+      }
+      for (const action of ["complete", "reopen"] as const) {
+        const before = store.projected().tasks.find((t) => t.id === immediate)!;
+        let release!: () => void;
+        let committed!: () => void;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const received = new Promise<void>((resolve) => {
+          committed = resolve;
+        });
+        holdResponse = async () => {
+          committed();
+          await gate;
+        };
+        const immediateKey = await store.enqueue(
+          "completion",
+          immediate,
+          action === "complete"
+            ? { action, openIds: withChildren ? [openChild] : [] }
+            : { action },
+        );
+        const inFlight = store.sync();
+        await received;
+        await store.enqueue("completion", immediate, {
+          action: "undo",
+          key: immediateKey,
+        });
+        assert.equal(store.getState().queue.length, 2);
+        holdResponse = undefined;
+        release();
+        await inFlight;
+        assert.deepEqual(
+          store.getState().queue,
+          [],
+          "new Undo must drain in the active synchronization",
+        );
+        const restored = store
+          .projected()
+          .tasks.find((t) => t.id === immediate)!;
+        assert.equal(restored.done, before.done);
+        assert.equal(restored.completedAt, before.completedAt);
+        if (withChildren) {
+          assert.equal(
+            store.projected().subtasks!.find((c) => c.id === openChild)!.done,
+            action === "reopen",
+          );
+          assert.equal(
+            store.projected().subtasks!.find((c) => c.id === doneChild)!.done,
+            true,
+          );
+        }
+        if (action === "complete") {
+          await store.enqueue("completion", immediate, {
+            action: "complete",
+            openIds: withChildren ? [openChild] : [],
+          });
+          await store.sync();
+        }
+      }
+      // Lose the completion response itself; its receipt must preserve the original time.
+      await store.enqueue("completion", immediate, { action: "reopen" });
+      await store.sync();
+      online = false;
+      const lostKey = await store.enqueue("completion", immediate, {
+        action: "complete",
+        openIds: [],
+      });
+      await store.enqueue("completion", immediate, {
+        action: "undo",
+        key: lostKey,
+      });
+      online = true;
+      loseResponse = true;
+      await store.sync();
+      assert.equal(store.getState().queue.length, 2);
+      await store.sync();
+      assert.deepEqual(store.getState().queue, []);
+      assert.equal(
+        store.projected().tasks.find((t) => t.id === immediate)!.done,
+        false,
+      );
+      // A remote status edit between completion and Undo must remain a conflict.
+      const remoteKey = await store.enqueue("completion", immediate, {
+        action: "complete",
+        openIds: [],
+      });
+      await store.sync();
+      online = false;
+      await store.enqueue("completion", immediate, {
+        action: "undo",
+        key: remoteKey,
+      });
+      await mutate(db, user, {
+        key: randomUUID(),
+        device: randomUUID(),
+        entity: withChildren ? "subtask" : "completion",
+        id: withChildren ? openChild : immediate,
+        version: withChildren
+          ? store.projected().subtasks!.find((c) => c.id === openChild)!.version
+          : store.projected().tasks.find((t) => t.id === immediate)!.version,
+        patch: withChildren ? { done: false } : { action: "reopen" },
+      });
+      online = true;
+      await store.sync();
+      assert.equal(store.status(), "Konflikt");
+      assert.equal(store.getState().queue[0].status, 409);
+      await store.discard(store.getState().queue[0].key);
+    }
+
     // A new parent and its children survive reload; completion and undo stay atomic.
     online = false;
     const subParent = randomUUID(),

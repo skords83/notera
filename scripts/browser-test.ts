@@ -1,3 +1,4 @@
+import { syncMetadata } from "./browser-sync";
 import { orderChecks } from "./browser-order";
 import { addTask as add, addTaskWithStorageContention } from "./browser-tasks";
 import { inlineSubtaskChecks } from "./browser-inline-subtasks";
@@ -52,6 +53,35 @@ try {
   await login(page, "sven");
   await login(sandra, "sandra");
   await login(page2, "sven");
+  // Production HTTP compatibility after the Fastify/static/Zod updates.
+  const script = await page
+    .locator('script[type="module"]')
+    .getAttribute("src");
+  const asset = await page.request.get(origin + script);
+  expect(asset.status()).toBe(200);
+  expect(asset.headers()["content-type"]).toContain("javascript");
+  const forbidden = await app.inject({ url: "/%00" });
+  expect(forbidden.statusCode).toBe(403);
+  expect(forbidden.json()).toEqual({ error: "Anfrage ungültig." });
+  const invalid = await app.inject({
+    method: "POST",
+    url: "/api/login",
+    headers: { origin },
+    payload: { username: "x".repeat(41), password: "invalid" },
+  });
+  expect(invalid.statusCode).toBe(400);
+  expect(invalid.json().error).toBeTruthy();
+  const oversized = await app.inject({
+    method: "POST",
+    url: "/api/login",
+    headers: { origin, "content-type": "application/json" },
+    payload: JSON.stringify({
+      username: "x",
+      password: "x".repeat(128 * 1024),
+    }),
+  });
+  expect(oversized.statusCode).toBe(413);
+  expect(oversized.json()).toEqual({ error: "Anfrage ungültig." });
   await colorChecks(page, sandra, a);
   await addTaskWithStorageContention(page, "Privater Gedanke");
   await page.reload();
@@ -160,6 +190,11 @@ try {
       .screenshot({ path: `test-results/failure-${index}.png`, fullPage: true })
       .catch(() => {});
   }
+  for (const page of browser?.contexts().flatMap((c) => c.pages()) || [])
+    console.error(
+      "Sync failure metadata",
+      JSON.stringify(await syncMetadata(page).catch(() => null)),
+    );
   throw error;
 } finally {
   await browser?.close();

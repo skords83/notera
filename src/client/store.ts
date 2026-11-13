@@ -64,6 +64,11 @@ channel?.addEventListener("message", async () => {
 let listeners = new Set<() => void>();
 let tail: Promise<unknown> = Promise.resolve();
 let running: Promise<void> | null = null;
+let queuedDuringSync = false;
+function syncQueued() {
+  if (running) queuedDuringSync = true;
+  else void sync();
+}
 let events: EventSource | null = null;
 export let syncStatus = "Laden …";
 export function getState() {
@@ -367,7 +372,7 @@ export async function enqueue(
   });
   syncStatus = navigator.onLine ? "Änderungen ausstehend" : "Offline";
   emit();
-  void sync();
+  syncQueued();
   return key;
 }
 export async function move(
@@ -433,7 +438,7 @@ export async function move(
   });
   syncStatus = navigator.onLine ? "Änderungen ausstehend" : "Offline";
   emit();
-  void sync();
+  syncQueued();
 }
 function connect() {
   if (events || !state.user) return;
@@ -521,6 +526,7 @@ export async function sync() {
     return;
   }
   const perform = async () => {
+    queuedDuringSync = false;
     try {
       state = (await (await database).get("state", "active")) || state;
       syncStatus = "Synchronisieren …";
@@ -727,6 +733,7 @@ export async function sync() {
           ? "Änderungen ausstehend"
           : "Synchronisiert";
       connect();
+      return true;
     } catch (e) {
       syncStatus =
         e instanceof ApiError && e.code === 401
@@ -742,10 +749,15 @@ export async function sync() {
       emit();
     }
   };
+  const drain = async () => {
+    // New local work may arrive after the send-loop snapshot. Drain it without
+    // waiting for a timer or SSE. A failed request is never retried here.
+    while (await perform()) {
+      if (!queuedDuringSync || !navigator.onLine || !state.user) break;
+    }
+  };
   running = (
-    navigator.locks
-      ? navigator.locks.request("notera-sync", perform)
-      : perform()
+    navigator.locks ? navigator.locks.request("notera-sync", drain) : drain()
   ).finally(() => {
     running = null;
   });
