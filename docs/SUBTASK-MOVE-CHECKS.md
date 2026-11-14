@@ -25,8 +25,12 @@ Zusätzlich wurden die zwölf Aufnahmen `inline-subtasks-{light,dark}-{1360,360,
 
 Die sechs Aufnahmen `test-results/move-{light,dark}-{1360,360,320}.png` wurden tatsächlich mit dem Bildbetrachter angesehen: lesbare Umbrüche, sichtbarer Fokus, erreichbare Zielauswahl/Abbruch und kein horizontales Abschneiden des Dialoginhalts. Die Aufnahmen werden vom bestehenden CI-Artefaktablauf erfasst; sie sind keine eingecheckten Binärdateien.
 
+## PostgreSQL und Container in CI
+
+Der [CI-Lauf 43611381523](https://github.com/skords83/notera/actions/runs/43611381523) für Implementierungsstand `739df3b` ist vollständig erfolgreich: 24 Tests, Browserchecks, Produktionsimage-Build, Start mit eigenständigem PostgreSQL, HTTP/Bootstrap, die erweiterten Verschiebe-/Konkurrenzszenarien über zwei Datenbankverbindungen, Migration und Backup/Restore in isolierten Datenbanken sowie Persistenz nach Containerneustart. Die Testcontainer wurden anschließend entfernt. Dieser Nachweis ergänzt die lokalen PGlite-Prüfungen; es war kein produktiver Rollout.
+
 ## Grenzen
 
-Ein separater PostgreSQL-Server und Docker/psql sind in dieser Arbeitsumgebung nicht verfügbar. Der vorhandene PostgreSQL-Containercheck wurde um dieselben Verschiebe-/Konkurrenzfälle über zwei Datenbankverbindungen und Backup/Restore erweitert, aber hier nicht ausgeführt. PGlite ist geprüft; daraus wird kein eigenständiger PostgreSQL-Lauf behauptet. Physische Android-Hardware, Screenreader und physischer Zwei-Geräte-Abgleich bleiben unbestätigt. Geprüft sind Chromium, tatsächliche Touch-Ereignisse und getrennte Browserkonten. Keine produktiven Daten oder Sicherungen wurden benutzt.
+Ein separater PostgreSQL-Server und Docker/psql sind in dieser Arbeitsumgebung nicht verfügbar. Der vorhandene PostgreSQL-Containercheck wurde um dieselben Verschiebe-/Konkurrenzfälle über zwei Datenbankverbindungen und Backup/Restore erweitert, aber lokal nicht ausgeführt. Der eigenständige PostgreSQL-Nachweis stammt aus dem oben verlinkten CI-Lauf. Physische Android-Hardware, Screenreader und physischer Zwei-Geräte-Abgleich bleiben unbestätigt. Geprüft sind Chromium, tatsächliche Touch-Ereignisse und getrennte Browserkonten. Keine produktiven Daten oder Sicherungen wurden benutzt.
 
 Konflikte werden bewusst konservativ behandelt: Ein geändertes Ziel erfordert gegebenenfalls Verwerfen und Neuauswahl. Vollständige eigene Idempotenzbelege im Snapshot wachsen mit der Nutzung, entsprechend der vorhandenen Sortierstrategie. Listenübergreifendes Verschieben einzelner Schritte gehört weiterhin nicht zum Funktionsumfang.

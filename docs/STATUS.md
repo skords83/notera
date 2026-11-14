@@ -2,7 +2,7 @@
 
 Unteraufgaben lassen sich in Übersicht und Detailpanel innerhalb derselben Liste zu einer anderen Hauptaufgabe verschieben. Atomare Rechte-/Strukturprüfung, Offline-Reload, Idempotenz und Schutz vor veralteten Undo-/Sortieraktionen sind umgesetzt. Basis `origin/main` bei `6379355`, Branch `feat/move-subtasks`; ursprünglicher Entwicklungsauftrag unverändert. Details und Grenzen stehen im [Prüfbericht](SUBTASK-MOVE-CHECKS.md).
 
-24 Tests und Produktionsbuild bestanden. PostgreSQL-Containerregressionen wurden erweitert; ein eigenständiger PostgreSQL-Lauf ist lokal mangels Server/Docker nicht möglich. Kein Merge oder produktiver Rollout. Frühere datierte Abschnitte sind Entwicklungsverlauf.
+24 Tests, Produktionsbuild und vollständige Chromium-Prüfung bestanden. Auch der [CI-Lauf mit PostgreSQL, Konkurrenz, Backup/Restore und Containerneustart](https://github.com/skords83/notera/actions/runs/43611381523) ist erfolgreich; lokal stehen Server/Docker nicht zur Verfügung. Kein Merge oder produktiver Rollout. Frühere datierte Abschnitte sind Entwicklungsverlauf.
 
 ---
 
