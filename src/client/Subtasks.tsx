@@ -14,6 +14,7 @@ function SubtaskRow({
   compact = false,
   siblings,
   move,
+  onTransfer,
 }: {
   child: Subtask;
   disabled: boolean;
@@ -22,6 +23,7 @@ function SubtaskRow({
   compact?: boolean;
   siblings: Subtask[];
   move: Move;
+  onTransfer: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(child.title);
@@ -118,6 +120,7 @@ function SubtaskRow({
           id={`sub-${child.id}-${compact ? "inline" : "detail"}`}
           title={child.title}
           grip={{ id: child.id, scope: child.taskId, onMove: move }}
+          onTransfer={onTransfer}
           onRemove={!compact ? () => void change({ deleted: true }) : undefined}
           ordering={{
             up: siblings[siblings.indexOf(child) - 1]
@@ -157,6 +160,7 @@ export function Subtasks({
     ),
   );
   const id = useId();
+  const [transfer, setTransfer] = useState<Subtask | null>(null);
   const [adding, setAdding] = useState(!inline);
   const addButton = useRef<HTMLButtonElement>(null);
   const focusAddButton = useRef(false);
@@ -243,6 +247,7 @@ export function Subtasks({
             key={child.id}
             child={child}
             siblings={children}
+            onTransfer={() => setTransfer(child)}
             move={moveAction("subtask", child.id, children, setError)}
             compact={inline}
             disabled={task.deleted}
@@ -298,11 +303,119 @@ export function Subtasks({
           </button>
         )
       )}
+      {transfer && (
+        <TransferDialog child={transfer} onClose={() => setTransfer(null)} />
+      )}
       {error && (
         <p id={`${id}-error`} role="alert" className="error">
           {error}
         </p>
       )}
     </section>
+  );
+}
+
+function TransferDialog({
+  child,
+  onClose,
+}: {
+  child: Subtask;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const id = useId();
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const snapshot = store.projected();
+  const source = snapshot.tasks.find((t) => t.id === child.taskId);
+  const targets = snapshot.tasks.filter(
+    (t) =>
+      !t.deleted &&
+      t.id !== child.taskId &&
+      t.listId === source?.listId &&
+      t.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
+  );
+  useEffect(() => {
+    ref.current?.showModal();
+  }, []);
+  function close() {
+    ref.current?.close();
+    onClose();
+  }
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const target = targets.find((t) => t.id === selected);
+    if (!target || busy) return;
+    setBusy(true);
+    try {
+      await store.enqueue("subtaskMove", child.id, {
+        sourceId: child.taskId,
+        targetId: target.id,
+        targetVersion: target.version,
+      });
+      close();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
+  return (
+    <dialog
+      ref={ref}
+      className="transfer-dialog"
+      aria-labelledby={`${id}-title`}
+      onCancel={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      }}
+    >
+      <h2 id={`${id}-title`}>Zu anderer Aufgabe verschieben</h2>
+      <p>
+        „{child.title}“ wird am Ende der gewählten Aufgabe angehängt. Die
+        Änderung wird beim nächsten Abgleich gespeichert.
+      </p>
+      <form onSubmit={submit}>
+        <label>
+          Aufgabe suchen
+          <input
+            autoFocus
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+        <fieldset>
+          <legend>Ziel in derselben Liste</legend>
+          {targets.map((t) => (
+            <label className="transfer-target" key={t.id}>
+              <input
+                type="radio"
+                name={`${id}-target`}
+                value={t.id}
+                checked={selected === t.id}
+                onChange={() => setSelected(t.id)}
+              />{" "}
+              <span>{t.title}</span>
+            </label>
+          ))}
+          {!targets.length && <p>Keine passende Aufgabe gefunden.</p>}
+        </fieldset>
+        {error && <p role="alert">{error}</p>}
+        <div className="actions">
+          <button
+            type="submit"
+            disabled={busy || !targets.some((t) => t.id === selected)}
+          >
+            Verschieben
+          </button>
+          <button type="button" onClick={close}>
+            Abbrechen
+          </button>
+        </div>
+      </form>
+    </dialog>
   );
 }

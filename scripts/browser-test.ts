@@ -1,3 +1,4 @@
+import { subtaskMoveChecks } from "./browser-subtask-move";
 import { syncMetadata } from "./browser-sync";
 import { orderChecks } from "./browser-order";
 import { addTask as add, addTaskWithStorageContention } from "./browser-tasks";
@@ -33,6 +34,7 @@ try {
   });
   await mkdir("test-results", { recursive: true });
   const a = await browser.newContext({
+    hasTouch: true,
     viewport: { width: 1360, height: 900 },
   });
   const b = await browser.newContext();
@@ -177,6 +179,7 @@ try {
   await subtaskLayoutChecks(page);
   await browserRegressions(page, a);
   await orderChecks(page, a, sandra);
+  await subtaskMoveChecks(page, a, sandra);
   expect(errors).toEqual([]);
   console.log(
     "Browserchecks bestanden: private/geteilte Listen, zwei Browserkonten, Reload, Offline-Reload, Abgleich, 320/360/Desktop ohne Überbreite. Screenshots in test-results/. Sichtprüfung und echte Android-Abnahme separat.",

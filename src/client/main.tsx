@@ -514,7 +514,12 @@ function App() {
             </>
           )}
           {state.notice && (
-            <div className="notice error" role="alert">
+            <div
+              className={
+                state.noticeKind === "success" ? "notice" : "notice error"
+              }
+              role={state.noticeKind === "success" ? "status" : "alert"}
+            >
               {state.notice}
               <button
                 aria-label="Hinweis schließen"
@@ -991,7 +996,7 @@ function App() {
                         ? state.snapshot.preferences[q.id]
                         : q.entity === "list"
                           ? state.snapshot.lists.find((l) => l.id === q.id)
-                          : q.entity === "subtask"
+                          : q.entity === "subtask" || q.entity === "subtaskMove"
                             ? state.snapshot.subtasks?.find(
                                 (c) => c.id === q.id,
                               )
@@ -1035,7 +1040,8 @@ function App() {
                       Nachfolgende ausstehende Sortieraktionen bleiben bis zur
                       Klärung blockiert.
                     </p>
-                  ) : q.entity === "completion" ? (
+                  ) : q.entity === "completion" ||
+                    q.entity === "subtaskMove" ? (
                     <p>
                       Serverfassung behalten und die Aktion anschließend an der
                       Hauptaufgabe erneut bestätigen. Bei einem
@@ -1140,6 +1146,8 @@ function ConflictValues({
     due: "Fälligkeit",
     done: "Erledigt",
     taskId: "Hauptaufgabe",
+    sourceId: "Bisherige Hauptaufgabe",
+    targetId: "Gewünschte Hauptaufgabe",
     action: "Aktion",
     openIds: "Offene Schritte",
     deleted: "Im Papierkorb",
@@ -1153,7 +1161,7 @@ function ConflictValues({
   function display(key: string, v: unknown): string {
     if (v === null || v === undefined || v === "") return "—";
     if (typeof v === "boolean") return v ? "Ja" : "Nein";
-    if (key === "taskId")
+    if (["taskId", "sourceId", "targetId"].includes(key))
       return (
         data.tasks.find((t) => t.id === v)?.title || "Nicht mehr verfügbar"
       );
