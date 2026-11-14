@@ -9,6 +9,7 @@ export function TaskActions({
   ordering,
   grip,
   onRemove,
+  onTransfer,
 }: {
   title: string;
   id: string;
@@ -16,6 +17,7 @@ export function TaskActions({
   ordering?: { up?: () => void; down?: () => void };
   grip?: { id: string; scope: string; onMove: Move };
   onRemove?: () => void;
+  onTransfer?: () => void;
 }) {
   const popupId = useId();
   const [open, setOpen] = useState(false);
@@ -72,6 +74,18 @@ export function TaskActions({
               }}
             >
               Unteraufgabe hinzufügen
+            </button>
+          )}
+          {onTransfer && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                trigger.current?.focus();
+                onTransfer();
+              }}
+            >
+              Zu anderer Aufgabe verschieben
             </button>
           )}
           {onRemove && (

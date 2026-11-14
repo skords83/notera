@@ -627,6 +627,236 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
     assert.equal(store.getState().queue[0].status, 409);
     await store.discard(store.getState().queue[0].key);
 
+    // New local parents/steps, move, follow-up edit and sort survive an offline reload.
+    online = false;
+    const moveSource = randomUUID(),
+      moveTarget = randomUUID();
+    const movingChild = randomUUID(),
+      moveAnchor = randomUUID();
+    await store.enqueue("task", moveSource, {
+      title: "Move source",
+      listId: inbox,
+    });
+    await store.enqueue("task", moveTarget, {
+      title: "Move target",
+      listId: inbox,
+    });
+    await store.enqueue("subtask", movingChild, {
+      title: "Offline moving",
+      taskId: moveSource,
+    });
+    await store.enqueue("subtask", moveAnchor, {
+      title: "Anchor",
+      taskId: moveTarget,
+    });
+    await store.enqueue("subtaskMove", movingChild, {
+      sourceId: moveSource,
+      targetId: moveTarget,
+      targetVersion: 0,
+    });
+    await store.enqueue("subtask", movingChild, { title: "Moved and edited" });
+    await store.move("subtask", movingChild, moveAnchor, "before");
+    store = await load("move-offline-reload");
+    await store.init();
+    assert.equal(
+      store.projected().subtasks!.find((c) => c.id === movingChild)!.taskId,
+      moveTarget,
+    );
+    online = true;
+    await store.sync();
+    assert.deepEqual(store.getState().queue, []);
+    assert.equal(
+      store.projected().subtasks!.find((c) => c.id === movingChild)!.title,
+      "Moved and edited",
+    );
+    assert.ok(
+      store.projected().subtasks!.find((c) => c.id === movingChild)!.position! <
+        store.projected().subtasks!.find((c) => c.id === moveAnchor)!.position!,
+    );
+    online = false;
+    await store.enqueue("subtaskMove", movingChild, {
+      sourceId: moveTarget,
+      targetId: moveSource,
+      targetVersion: store.projected().tasks.find((t) => t.id === moveSource)!
+        .version,
+    });
+    await store.enqueue("subtaskMove", movingChild, {
+      sourceId: moveSource,
+      targetId: moveTarget,
+      targetVersion: store.projected().tasks.find((t) => t.id === moveTarget)!
+        .version,
+    });
+    store = await load("sequential-moves-reload");
+    await store.init();
+    online = true;
+    await store.sync();
+    assert.deepEqual(store.getState().queue, []);
+    assert.equal(
+      store.projected().subtasks!.find((c) => c.id === movingChild)!.taskId,
+      moveTarget,
+    );
+    online = false;
+    const undoMove = await store.enqueue("completion", moveTarget, {
+      action: "complete",
+      openIds: [movingChild, moveAnchor],
+    });
+    await store.enqueue("subtaskMove", movingChild, {
+      sourceId: moveTarget,
+      targetId: moveSource,
+      targetVersion: store.projected().tasks.find((t) => t.id === moveSource)!
+        .version,
+    });
+    await store.enqueue("completion", moveTarget, {
+      action: "undo",
+      key: undoMove,
+    });
+    store = await load("move-completion-undo-reload");
+    await store.init();
+    online = true;
+    await store.sync();
+    assert.equal(store.getState().queue.length, 1);
+    assert.equal(store.getState().queue[0].status, 409);
+    assert.equal(
+      (await snapshot(db, user, 0, randomUUID())).subtasks.find(
+        (c) => c.id === movingChild,
+      )!.taskId,
+      moveSource,
+    );
+    assert.equal(
+      (await snapshot(db, user, 0, randomUUID())).subtasks.find(
+        (c) => c.id === movingChild,
+      )!.done,
+      true,
+    );
+    await store.discard(store.getState().queue[0].key);
+    online = false;
+    await store.enqueue("subtaskMove", movingChild, {
+      sourceId: moveSource,
+      targetId: moveTarget,
+      targetVersion: store.projected().tasks.find((t) => t.id === moveTarget)!
+        .version,
+    });
+    online = true;
+    loseResponse = true;
+    await store.sync();
+    online = false;
+    store = await load("move-lost-response-reload");
+    await store.init();
+    online = true;
+    await store.sync();
+    assert.deepEqual(store.getState().queue, []);
+    assert.equal(
+      store.projected().subtasks!.filter((c) => c.id === movingChild).length,
+      1,
+    );
+    assert.equal(
+      store.projected().subtasks!.find((c) => c.id === movingChild)!.taskId,
+      moveTarget,
+    );
+
+    // An old undo cannot even optimistically restore state after moving out and back.
+    online = false;
+    await store.enqueue("completion", moveTarget, {
+      action: "undo",
+      key: undoMove,
+    });
+    assert.equal(
+      store.projected().tasks.find((t) => t.id === moveTarget)!.done,
+      true,
+    );
+    assert.equal(
+      store.projected().subtasks!.find((c) => c.id === movingChild)!.done,
+      true,
+    );
+    online = true;
+    await store.sync();
+    assert.equal(store.getState().queue[0].status, 409);
+    await store.discard(store.getState().queue[0].key);
+    // A rejected move must not redirect later edits to the step's old parent.
+    online = false;
+    await store.enqueue("subtaskMove", movingChild, {
+      sourceId: moveTarget,
+      targetId: moveSource,
+      targetVersion: store.projected().tasks.find((t) => t.id === moveSource)!
+        .version,
+    });
+    await store.enqueue("subtask", movingChild, {
+      title: "Dependent move edit",
+    });
+    await mutate(db, user, {
+      key: randomUUID(),
+      device: randomUUID(),
+      entity: "task",
+      id: moveSource,
+      version: store.projected().tasks.find((t) => t.id === moveSource)!
+        .version,
+      patch: { title: "Remote target change" },
+    });
+    online = true;
+    await store.sync();
+    assert.equal(store.getState().queue[0].status, 409);
+    await store.discard(store.getState().queue[0].key);
+    assert.equal(store.getState().queue.length, 1);
+    assert.equal(store.getState().queue[0].status, 400);
+    assert.equal(
+      (await snapshot(db, user, 0, randomUUID())).subtasks.find(
+        (c) => c.id === movingChild,
+      )!.title,
+      "Moved and edited",
+    );
+    await store.discard(store.getState().queue[0].key);
+
+    // A move waits for pending reopen/undo, and then for a pending local sort.
+    online = false;
+    const reopenBeforeMove = await store.enqueue("completion", moveTarget, {
+      action: "reopen",
+    });
+    await store.enqueue("completion", moveTarget, {
+      action: "undo",
+      key: reopenBeforeMove,
+    });
+    await store.enqueue("subtaskMove", movingChild, {
+      sourceId: moveTarget,
+      targetId: moveSource,
+      targetVersion: store.projected().tasks.find((t) => t.id === moveSource)!
+        .version,
+    });
+    store = await load("undo-before-move-reload");
+    await store.init();
+    online = true;
+    await store.sync();
+    assert.deepEqual(store.getState().queue, []);
+    assert.equal(
+      store.projected().subtasks!.find((c) => c.id === movingChild)!.taskId,
+      moveSource,
+    );
+    assert.equal(
+      store.projected().tasks.find((t) => t.id === moveTarget)!.done,
+      true,
+    );
+    online = false;
+    const sortBeforeMoveAnchor = randomUUID();
+    await store.enqueue("subtask", sortBeforeMoveAnchor, {
+      title: "Sort before move",
+      taskId: moveSource,
+    });
+    await store.move("subtask", movingChild, sortBeforeMoveAnchor, "after");
+    await store.enqueue("subtaskMove", movingChild, {
+      sourceId: moveSource,
+      targetId: moveTarget,
+      targetVersion: store.projected().tasks.find((t) => t.id === moveTarget)!
+        .version,
+    });
+    store = await load("sort-before-move-reload");
+    await store.init();
+    online = true;
+    await store.sync();
+    assert.deepEqual(store.getState().queue, []);
+    assert.equal(
+      store.projected().subtasks!.find((c) => c.id === movingChild)!.taskId,
+      moveTarget,
+    );
+
     // A permanently deleted parent never comes back through pending child edits/creates.
     online = false;
     await store.enqueue("subtask", childA, { title: "Retain local text" });

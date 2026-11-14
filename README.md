@@ -154,7 +154,7 @@ Im Aufgabendetail unter **Unteraufgaben** einen Titel eingeben und Enter drücke
 - Bei offenen Schritten fragt das Erledigen mit deren Anzahl nach **Alles erledigen** oder **Abbrechen**. Die bestätigten Schritte und die Hauptaufgabe werden gemeinsam transaktional erledigt.
 - Wiederöffnen der Hauptaufgabe lässt die Schritte unverändert. Ein neuer oder wieder geöffneter Schritt öffnet eine erledigte Hauptaufgabe wieder.
 - **Rückgängig** stellt die von dieser Aktion geänderten Statuswerte und den Erledigungszeitpunkt atomar wieder her. Zwischenzeitliche Statusänderungen führen zu einem sichtbaren Konflikt statt zum Überschreiben anderer Arbeit.
-- Listenmitglieder bearbeiten Schritte gemeinsam. Verschieben, Papierkorb und Wiederherstellung betreffen stets die gesamte Aufgabe; endgültiges Löschen entfernt auch ihre Schritte.
+- Listenmitglieder bearbeiten Schritte gemeinsam. Einzelne Schritte lassen sich innerhalb derselben Liste einer anderen Hauptaufgabe zuordnen (siehe unten). Listenwechsel, Papierkorb und Wiederherstellung der Hauptaufgabe betreffen weiterhin ihre verbleibenden Schritte; endgültiges Löschen entfernt diese Schritte.
 - Offline funktioniert auch „neue Hauptaufgabe → sofort Schritte hinzufügen“. Einzelne Schritte haben eigene Versionen. Abgelehnte Änderungen bleiben in der Queue sichtbar; Rechteentzug entfernt nach dem Serverabgleich die betroffenen lokalen Daten entsprechend den bestehenden Regeln.
 
 **Upgrade:** Vorher sichern. Migration `003_subtasks.sql` läuft beim App-Start automatisch und transaktional unter PostgreSQL/PGlite; 001/002 bleiben unverändert. Seit Schema 004 nutzen neue JSON-Sicherungen `notera-3`; zum Restore ist mindestens Schema 004 erforderlich. Alte `notera-1`-Sicherungen sind weiterhin importierbar und enthalten keine Unteraufgaben. Danach alle PWA-Tabs schließen und neu öffnen, damit der neue Service Worker aktiv wird. Alte Clients können Aufgaben mit offenen Schritten nicht ohne Bestätigung erledigen; ihre abgewiesene Änderung bleibt sichtbar.
@@ -184,3 +184,13 @@ In einer konkreten Liste einschließlich **Eingang** lassen sich Hauptaufgaben s
 **Upgrade:** Vorher sichern. Die additive Migration `004_manual_order.sql` läuft beim App-Start transaktional unter PostgreSQL und PGlite; Migrationen 001–003 bleiben unverändert. Bestehende Hauptaufgaben erhalten ihre bisherige Reihenfolge nach Änderungszeit, Schritte nach Erstellungszeit; UUIDs entscheiden Zeitgleichstände deterministisch. Neue Backups im Format `notera-3` enthalten Positionen, Reihenfolgeversionen und Idempotenzbelege. Restore akzeptiert weiterhin `notera-1`/`notera-2` und erzeugt für diese dieselbe Ausgangsreihenfolge. Neue Sicherungen nicht mit einer älteren App wiederherstellen.
 
 Nach Review/Merge und erfolgreichem bestehenden Containerworkflow: VPS sichern, `docker compose pull`, `docker compose up -d`, Healthcheck und Synchronisation prüfen. Alle PWA-Tabs schließen und neu öffnen. Keine neuen Umgebungsvariablen oder Abhängigkeiten; kein produktiver Rollout durch diesen Auftrag. Echte Android-/Screenreader-Prüfung siehe [Prüfbericht](docs/STATUS.md).
+
+### Einzelne Unteraufgaben verschieben
+
+Im Unteraufgabenmenü in Übersicht oder Detail **Zu anderer Aufgabe verschieben** wählen. Der Dialog sucht nach Hauptaufgaben derselben Liste. Die aktuelle Hauptaufgabe und Aufgaben im Papierkorb sind ausgeschlossen. Ziel per Touch oder mit Tab/Pfeiltasten/Leertaste auswählen und **Verschieben** bestätigen; **Abbrechen** oder Escape schließen den Dialog ohne Änderung.
+
+ID, Titel und Status bleiben erhalten; der Schritt erscheint am Ende des Ziels. Ein offener Schritt öffnet eine erledigte Zielaufgabe wieder. Die Quelle wird nicht automatisch erledigt. Beide Fortschrittsanzeigen aktualisieren sich sofort. Offline bleibt die Verschiebung einschließlich lokaler Neuanlagen über Neuladen erhalten; der Synchronisationsstatus zeigt den noch ausstehenden Abgleich. Erst nach Serverbestätigung erscheint die Erfolgsmeldung.
+
+Veränderte oder nicht mehr verfügbare Ziele erzeugen einen Konflikt unter **Änderungen prüfen**. Die Aktion verwerfen und das Ziel erneut wählen. Alte Completion-/Undo- und Sortieraktionen dürfen keine zwischenzeitlichen Elternwechsel überschreiben. Listenübergreifende Einzelverschiebungen bleiben ausgeschlossen. Schema 004 und Backupformat `notera-3` genügen; es gibt keine neue Migration. Nach Aktualisierung bestehende PWA-Tabs neu öffnen.
+
+Prüfungen und verbleibende Grenzen: [Prüfbericht Unteraufgabenverschiebung](docs/SUBTASK-MOVE-CHECKS.md).
