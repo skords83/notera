@@ -10,6 +10,7 @@ import {
   listPatch,
   listName,
   subtaskPatch,
+  subtaskMovePatch,
   completionPatch,
 } from "../shared/model";
 import type {
@@ -28,6 +29,7 @@ export type Pending = Mutation & {
 };
 export type Local = {
   notice?: string;
+  noticeKind?: "success";
   user: User | null;
   snapshot: Snapshot;
   queue: Pending[];
@@ -187,6 +189,39 @@ export function projected(local: Local = state): Snapshot {
       if (!blockedOrders.has(scope)) projectOrder(result, m.id, p);
       continue;
     }
+    if (m.entity === "subtaskMove") {
+      if (m.error || result.moveReceipts?.includes(m.key)) continue;
+      const child = result.subtasks.find((c) => c.id === m.id);
+      const target = result.tasks.find(
+        (t) => t.id === m.patch.targetId && !t.deleted,
+      );
+      const source = result.tasks.find(
+        (t) => t.id === m.patch.sourceId && !t.deleted,
+      );
+      if (
+        !child ||
+        !target ||
+        !source ||
+        source.id === target.id ||
+        source.listId !== target.listId ||
+        child.taskId !== source.id
+      )
+        continue;
+      child.position =
+        Math.max(
+          0,
+          ...result.subtasks
+            .filter((c) => c.taskId === target.id)
+            .map((c) => c.position || 0),
+        ) + 1;
+      child.taskId = target.id;
+      child.orderVersion = (child.orderVersion || 0) + 1;
+      if (!child.done) {
+        target.done = false;
+        target.completedAt = null;
+      }
+      continue;
+    }
     if (m.entity === "subtask") {
       let child = result.subtasks.find((c) => c.id === m.id);
       const isNew = !child;
@@ -210,6 +245,8 @@ export function projected(local: Local = state): Snapshot {
         child.orderVersion = 0;
         result.subtasks.push(child);
       }
+      if (m.error || (m.base?.taskId && child.taskId !== m.base.taskId))
+        continue;
       Object.assign(child, m.patch);
       const parent = result.tasks.find((t) => t.id === child.taskId);
       if (parent && !child.deleted && (isNew || m.patch.done === false)) {
@@ -218,17 +255,45 @@ export function projected(local: Local = state): Snapshot {
       }
     } else if (m.entity === "completion") {
       const parent = result.tasks.find((t) => t.id === m.id);
-      if (!parent) continue;
+      if (!parent || m.error) continue;
       if (m.patch.action === "complete") {
+        if (
+          !(m.patch.openIds as string[]).every((id) =>
+            result.subtasks!.some(
+              (c) => c.id === id && c.taskId === m.id && !c.deleted,
+            ),
+          )
+        )
+          continue;
         parent.done = true;
         for (const c of result.subtasks)
-          if ((m.patch.openIds as string[]).includes(c.id)) c.done = true;
+          if (c.taskId === m.id && (m.patch.openIds as string[]).includes(c.id))
+            c.done = true;
       } else if (m.patch.action === "reopen") {
         parent.done = false;
         parent.completedAt = null;
       } else {
         const before = m.base?.undoState as any;
-        if (before) {
+        if (
+          before &&
+          (local.queue.some(
+            (q) => q.key === m.patch.key && q.entity === "completion",
+          ) ||
+            (parent.version === before.version &&
+              before.subtasks.every((v: any) =>
+                result.subtasks!.some(
+                  (c) => c.id === v.id && c.version === v.version,
+                ),
+              ))) &&
+          !local.queue.some(
+            (q) =>
+              q.entity === "subtaskMove" &&
+              (q.patch.sourceId === m.id || q.patch.targetId === m.id),
+          ) &&
+          before.subtasks.every((v: any) =>
+            result.subtasks!.some((c) => c.id === v.id && c.taskId === m.id),
+          )
+        ) {
           parent.done = before.done;
           parent.completedAt = before.completedAt;
           for (const c of result.subtasks) {
@@ -310,20 +375,34 @@ export async function enqueue(
     if (!parsed.success) throw new Error(parsed.error.issues[0].message);
     patch = parsed.data;
   }
-  if (entity === "subtask" || entity === "completion") {
+  if (
+    entity === "subtask" ||
+    entity === "completion" ||
+    entity === "subtaskMove"
+  ) {
     const parsed = (
-      entity === "subtask" ? subtaskPatch : completionPatch
+      entity === "subtask"
+        ? subtaskPatch
+        : entity === "subtaskMove"
+          ? subtaskMovePatch
+          : completionPatch
     ).safeParse(patch);
     if (!parsed.success) throw new Error(parsed.error.issues[0].message);
     patch = parsed.data;
   }
   const accountId = state.user.id;
   const snap = projected();
+  // Carry the intended parent through offline moves and conflict/discard flows.
+  // The server only accepts taskId here when it equals the current parent.
+  if (entity === "subtask" && !patch.taskId) {
+    const child = snap.subtasks?.find((c) => c.id === id);
+    if (child) patch = { ...patch, taskId: child.taskId };
+  }
   const v =
     version ??
     (entity === "task" || entity === "completion"
       ? snap.tasks.find((t) => t.id === id)?.version
-      : entity === "subtask"
+      : entity === "subtask" || entity === "subtaskMove"
         ? snap.subtasks?.find((c) => c.id === id)?.version
         : entity === "list"
           ? snap.lists.find((t) => t.id === id)?.version
@@ -338,7 +417,7 @@ export async function enqueue(
     const object =
       entity === "task" || entity === "completion"
         ? snap.tasks.find((t) => t.id === id)
-        : entity === "subtask"
+        : entity === "subtask" || entity === "subtaskMove"
           ? snap.subtasks?.find((c) => c.id === id)
           : entity === "list"
             ? snap.lists.find((l) => l.id === id)
@@ -352,6 +431,9 @@ export async function enqueue(
       device: s.device,
       base: {
         ...(object || {}),
+        ...(entity === "subtaskMove"
+          ? { target: snap.tasks.find((t) => t.id === patch.targetId) }
+          : {}),
         ...(entity === "completion"
           ? {
               subtasks: (snap.subtasks || []).filter(
@@ -482,7 +564,7 @@ async function pull() {
       (s.snapshot.subtasks || []).map((c) => [c.id, c.taskId]),
     );
     for (const m of s.queue)
-      if (m.entity === "subtask")
+      if (m.entity === "subtask" || m.entity === "subtaskMove")
         parents.set(
           m.id,
           String(m.base?.taskId || m.patch.taskId || parents.get(m.id) || ""),
@@ -498,14 +580,18 @@ async function pull() {
             ? m.id
             : m.entity === "task"
               ? oldTasks.get(m.id)?.listId || String(m.patch.listId || "")
-              : oldTasks.get(m.entity === "subtask" ? parents.get(m.id)! : m.id)
-                  ?.listId;
+              : oldTasks.get(
+                  m.entity === "subtask" || m.entity === "subtaskMove"
+                    ? parents.get(m.id)!
+                    : m.id,
+                )?.listId;
       const keep = !list || allowed.has(list) || locallyCreatedLists.has(list);
       if (!keep) revoked++;
       return keep;
     });
     s.snapshot = snap;
     if (revoked) {
+      delete s.noticeKind;
       s.notice =
         "Zugriff entzogen: ausstehende Änderungen wurden nicht übernommen; lokale Kopien und Queue-Einträge wurden entfernt.";
       syncStatus = s.notice;
@@ -566,15 +652,18 @@ export async function sync() {
         const parentId =
           m.entity === "order" && m.patch.kind === "subtask"
             ? String(m.patch.scopeId)
-            : m.entity === "subtask"
+            : m.entity === "subtask" || m.entity === "subtaskMove"
               ? String(m.base?.taskId || m.patch.taskId || "")
               : m.id;
         if (
-          (m.entity === "subtask" || m.entity === "completion") &&
+          (m.entity === "subtask" ||
+            m.entity === "completion" ||
+            m.entity === "subtaskMove") &&
           state.queue.some(
             (q) =>
               q.entity === "task" &&
-              q.id === parentId &&
+              (q.id === parentId ||
+                (m.entity === "subtaskMove" && q.id === m.patch.targetId)) &&
               (q.version === 0 || q.error),
           )
         )
@@ -590,6 +679,34 @@ export async function sync() {
             ) ||
             (m.patch.action === "undo" &&
               state.queue.some((q) => q.key === m.patch.key)))
+        )
+          continue;
+        if (
+          state.queue
+            .slice(0, state.queue.indexOf(m))
+            .some(
+              (q) =>
+                q.entity === "subtaskMove" &&
+                (q.id === m.id ||
+                  q.patch.sourceId === parentId ||
+                  q.patch.targetId === parentId ||
+                  (m.entity === "order" && q.id === m.patch.anchorId)),
+            )
+        )
+          continue;
+        if (
+          m.entity === "subtaskMove" &&
+          state.queue
+            .slice(0, state.queue.indexOf(m))
+            .some(
+              (q) =>
+                q.id === m.id ||
+                q.id === m.patch.sourceId ||
+                q.id === m.patch.targetId ||
+                (q.entity === "order" &&
+                  (q.patch.scopeId === m.patch.sourceId ||
+                    q.patch.scopeId === m.patch.targetId)),
+            )
         )
           continue;
         const pendingList = state.queue.find(
@@ -620,10 +737,23 @@ export async function sync() {
             s.queue = s.queue.filter((q) => q.key !== m.key);
             const affected: { entity: Mutation["entity"]; id: string }[] = [
               {
-                entity: m.entity === "completion" ? "task" : m.entity,
+                entity:
+                  m.entity === "completion"
+                    ? "task"
+                    : m.entity === "subtaskMove"
+                      ? "subtask"
+                      : m.entity,
                 id: m.id,
               },
             ];
+            if (m.entity === "subtaskMove") {
+              affected.push(
+                { entity: "task", id: String(m.patch.sourceId) },
+                { entity: "task", id: String(m.patch.targetId) },
+              );
+              s.noticeKind = "success";
+              s.notice = "Unteraufgabe wurde zur anderen Aufgabe verschoben.";
+            }
             if (m.entity === "subtask")
               affected.push({ entity: "task", id: parentId });
             if (m.entity === "completion") {
@@ -635,6 +765,55 @@ export async function sync() {
                     );
               for (const id of ids) affected.push({ entity: "subtask", id });
             }
+            // Rebase only causally acknowledged local dependencies. Never rebase on a pull.
+            for (const q of s.queue.filter(
+              (q) => q.entity === "subtaskMove" && !q.error,
+            )) {
+              const c = acknowledged.subtasks?.find((c) => c.id === q.id);
+              const t = acknowledged.tasks.find(
+                (t) => t.id === q.patch.targetId,
+              );
+              const expectedChildVersion =
+                m.entity === "completion"
+                  ? result.stepVersions?.[q.id]
+                  : (m.entity === "subtask" || m.entity === "subtaskMove") &&
+                      m.id === q.id
+                    ? result.version
+                    : undefined;
+              if (
+                c &&
+                c.version === expectedChildVersion &&
+                (c.version === q.version + 1 ||
+                  (m.entity === "subtaskMove" && m.id === q.id)) &&
+                c.taskId === q.patch.sourceId
+              )
+                q.version = c.version;
+              if (
+                t &&
+                t.version === result.parentVersions?.[t.id] &&
+                t.version === Number(q.patch.targetVersion) + 1
+              ) {
+                const base = q.base?.target as Task | undefined;
+                if (
+                  base &&
+                  [
+                    "listId",
+                    "deleted",
+                    "title",
+                    "notes",
+                    "done",
+                    "links",
+                    "due",
+                    "assignee",
+                  ].every(
+                    (k) =>
+                      JSON.stringify((base as any)[k]) ===
+                      JSON.stringify((t as any)[k]),
+                  )
+                )
+                  q.patch.targetVersion = t.version;
+              }
+            }
             for (const item of affected.filter(
               (item) => item.entity !== "order",
             )) {
@@ -642,9 +821,11 @@ export async function sync() {
                 (q) =>
                   q.id === item.id &&
                   (q.entity === item.entity ||
+                    (item.entity === "subtask" && q.entity === "subtaskMove") ||
                     (item.entity === "task" && q.entity === "completion")),
               );
-              if (!next || next.error) continue;
+              if (!next || next.error || next.entity === "subtaskMove")
+                continue;
               const current: any =
                 item.entity === "task"
                   ? acknowledged.tasks.find((t) => t.id === item.id)
@@ -787,7 +968,7 @@ export async function discard(key: string) {
           m.id !== rejected.id &&
           !tasks.has(m.id) &&
           !(
-            m.entity === "subtask" &&
+            (m.entity === "subtask" || m.entity === "subtaskMove") &&
             tasks.has(String(m.base?.taskId || m.patch.taskId))
           ),
       );
@@ -837,10 +1018,8 @@ export async function correctNewList(
 export async function resolveConflict(key: string, restore = false) {
   const m = state.queue.find((q) => q.key === key);
   if (!m) return;
-  if (m.entity === "order")
-    throw new Error(
-      "Bitte die Sortieraktion verwerfen und die Position erneut wählen.",
-    );
+  if (m.entity === "order" || m.entity === "subtaskMove")
+    throw new Error("Bitte die Aktion verwerfen und das Ziel erneut wählen.");
   const snapshot = state.snapshot;
   let version =
     m.entity === "task" || m.entity === "completion"

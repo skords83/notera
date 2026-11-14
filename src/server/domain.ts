@@ -5,6 +5,7 @@ import {
   mutationSchema,
   taskPatch,
   subtaskPatch,
+  subtaskMovePatch,
   completionPatch,
   prefPatch,
   listPatch,
@@ -82,6 +83,22 @@ export async function mutate(db: Database, user: string, input: unknown) {
     let existing: any;
     let parent: any;
     let before: any;
+    let target: any;
+    if (m.entity === "subtaskMove") {
+      const p = subtaskMovePatch.parse(m.patch);
+      existing = await one(tx, "SELECT * FROM subtasks WHERE id=$1", [m.id]);
+      if (!existing) fail(410, "Unteraufgabe nicht mehr vorhanden.");
+      parent = await one(tx, "SELECT * FROM tasks WHERE id=$1", [p.sourceId]);
+      target = await one(tx, "SELECT * FROM tasks WHERE id=$1", [p.targetId]);
+      const currentParent = await one(tx, "SELECT * FROM tasks WHERE id=$1", [
+        existing.task_id,
+      ]);
+      if (!parent || !target || !currentParent)
+        fail(410, "Hauptaufgabe nicht mehr vorhanden.");
+      await access(tx, user, parent.list_id);
+      await access(tx, user, target.list_id);
+      await access(tx, user, currentParent.list_id);
+    }
     if (m.entity === "order") {
       const p = orderPatch.parse(m.patch);
       if (p.kind === "task") {
@@ -157,7 +174,62 @@ export async function mutate(db: Database, user: string, input: unknown) {
       return old.result;
     }
     let version = 1;
-    if (m.entity === "order") {
+    if (m.entity === "subtaskMove") {
+      const p = subtaskMovePatch.parse(m.patch);
+      if (
+        existing.task_id !== p.sourceId ||
+        parent.id === target.id ||
+        parent.list_id !== target.list_id ||
+        parent.deleted_at ||
+        target.deleted_at ||
+        existing.data.deleted ||
+        existing.version !== m.version ||
+        target.version !== p.targetVersion
+      )
+        fail(
+          409,
+          "Unteraufgabe oder Ziel inzwischen verändert. Bitte Verschiebung erneut wählen.",
+          {
+            current: {
+              ...existing.data,
+              taskId: existing.task_id,
+              version: existing.version,
+            },
+          },
+        );
+      version = existing.version + 1;
+      const data = { ...existing.data, taskId: target.id };
+      // Moving is structural even when a step later returns to the original parent.
+      const fields = { ...existing.field_versions, taskId: version };
+      await tx.query(
+        "UPDATE subtasks SET task_id=$2,data=$3,version=$4,field_versions=$5,order_version=order_version+1,position=(SELECT coalesce(max(position),0)+1 FROM subtasks WHERE task_id=$2) WHERE id=$1",
+        [
+          m.id,
+          target.id,
+          JSON.stringify(data),
+          version,
+          JSON.stringify(fields),
+        ],
+      );
+      for (const row of [parent, target]) {
+        if (row.id === target.id && !data.done) {
+          row.data.done = false;
+          row.data.completedAt = null;
+          row.field_versions.done = row.version + 1;
+        }
+        row.field_versions.subtasks = row.version + 1;
+        await tx.query(
+          "UPDATE tasks SET data=$2,version=version+1,field_versions=$3,updated_at=now() WHERE id=$1",
+          [
+            row.id,
+            JSON.stringify(row.data),
+            JSON.stringify(row.field_versions),
+          ],
+        );
+        await change(tx, "task", row.id);
+      }
+      await change(tx, "subtask", m.id);
+    } else if (m.entity === "order") {
       const p = orderPatch.parse(m.patch);
       const table = p.kind === "task" ? "tasks" : "subtasks";
       const scope = p.kind === "task" ? "list_id" : "task_id";
@@ -248,7 +320,7 @@ export async function mutate(db: Database, user: string, input: unknown) {
       } else {
         if (existing.data.deleted)
           fail(410, "Unteraufgabe entfernt. Lokale Änderung bleibt erhalten.");
-        checkMerge(existing, m, p, ["deleted"]);
+        checkMerge(existing, m, p, ["deleted", "taskId"]);
       }
       const data = {
         title: "",
@@ -260,7 +332,10 @@ export async function mutate(db: Database, user: string, input: unknown) {
       };
       version = (existing?.version || 0) + 1;
       const fields = { ...existing?.field_versions };
-      for (const k of Object.keys(p)) fields[k] = version;
+      for (const k of Object.keys(p)) {
+        // taskId is an expected-parent guard on ordinary edits, not a move.
+        if (k !== "taskId" || !existing) fields[k] = version;
+      }
       await tx.query(
         "INSERT INTO subtasks(id,task_id,data,version,field_versions) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET data=EXCLUDED.data,version=EXCLUDED.version,field_versions=EXCLUDED.field_versions",
         [
@@ -308,6 +383,7 @@ export async function mutate(db: Database, user: string, input: unknown) {
         checkMerge(parent, m, { done: p.action === "complete" }, [
           "listId",
           "deleted",
+          "subtasks",
         ]);
         const open =
           p.action === "complete" ? active.filter((c) => !c.data.done) : [];
@@ -355,7 +431,10 @@ export async function mutate(db: Database, user: string, input: unknown) {
         if (!saved?.before || saved.taskId !== m.id)
           fail(400, "Rückgängig-Aktion nicht vorhanden.");
         before = saved.before;
-        if (parent.field_versions.done !== before.version)
+        if (
+          parent.field_versions.done !== before.version ||
+          Number(parent.field_versions.subtasks || 0) > before.version
+        )
           fail(
             409,
             "Aufgabenstatus inzwischen verändert. Rückgängig nicht sicher möglich.",
@@ -363,7 +442,11 @@ export async function mutate(db: Database, user: string, input: unknown) {
           );
         for (const prev of before.subtasks) {
           const c = active.find((c) => c.id === prev.id);
-          if (!c || c.field_versions.done !== prev.version)
+          if (
+            !c ||
+            c.field_versions.done !== prev.version ||
+            Number(c.field_versions.taskId || 0) > prev.version
+          )
             fail(
               409,
               "Unteraufgabe inzwischen verändert. Rückgängig nicht sicher möglich.",
@@ -584,8 +667,39 @@ export async function mutate(db: Database, user: string, input: unknown) {
     }
     const cursor = await change(tx, m.entity, m.id);
     const result = {
-      ...(m.entity === "order" ? { entity: "order" } : {}),
+      ...(["order", "subtaskMove"].includes(m.entity)
+        ? { entity: m.entity }
+        : {}),
       version,
+      parentVersions: Object.fromEntries(
+        (
+          await tx.query(
+            "SELECT id,version FROM tasks WHERE id=ANY($1::uuid[])",
+            [
+              [
+                ...new Set(
+                  [
+                    parent?.id,
+                    target?.id,
+                    m.entity === "task" ? m.id : undefined,
+                  ].filter(Boolean),
+                ),
+              ],
+            ],
+          )
+        ).rows.map((r) => [r.id, r.version]),
+      ),
+      stepVersions:
+        m.entity === "completion"
+          ? Object.fromEntries(
+              (
+                await tx.query(
+                  "SELECT id,version FROM subtasks WHERE task_id=$1",
+                  [m.id],
+                )
+              ).rows.map((r) => [r.id, r.version]),
+            )
+          : {},
       cursor,
       ...(before ? { before, taskId: m.id } : {}),
     };
@@ -649,6 +763,12 @@ export async function snapshot(
       [user, device, clock.cursor],
     );
     return {
+      moveReceipts: (
+        await tx.query(
+          "SELECT key FROM mutations WHERE user_id=$1 AND result->>'entity'='subtaskMove'",
+          [user],
+        )
+      ).rows.map((r) => r.key as string),
       orderReceipts: (
         await tx.query(
           "SELECT key FROM mutations WHERE user_id=$1 AND result->>'entity'='order'",

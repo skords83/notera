@@ -1,3 +1,4 @@
+import { subtaskMoveScenarios } from "../tests/subtask-move-scenarios";
 import { orderScenarios } from "../tests/order-scenarios";
 /** Run only inside the disposable CI Compose installation. Creates and drops its own databases. */
 import pg from "pg";
@@ -95,6 +96,7 @@ try {
   const peer = new Database(peerUrl.toString());
   opened.push(peer);
   const orderUser = await orderScenarios(source, peer);
+  const moveUser = await subtaskMoveScenarios(source, peer);
   const saved = await backup(source);
   await target.migrate();
   await restore(target, saved);
@@ -106,6 +108,13 @@ try {
     (await snapshot(target, user, 0, device)).tasks.find((t) => t.id === id)!
       .done,
     false,
+  );
+  const restoredMove = await snapshot(target, moveUser.user, 0, device);
+  const sourceMove = await snapshot(source, moveUser.user, 0, device);
+  assert.deepEqual(restoredMove.subtasks, sourceMove.subtasks);
+  assert.deepEqual(
+    restoredMove.moveReceipts.sort(),
+    sourceMove.moveReceipts.sort(),
   );
   const restoredOrder = await snapshot(target, orderUser.user, 0, device);
   const sourceOrder = await snapshot(source, orderUser.user, 0, device);
