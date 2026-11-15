@@ -833,6 +833,7 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
       sourceId: moveSource,
       targetId: moveTarget,
       targetVersion: 0,
+      placement: { anchorId: moveAnchor, anchorVersion: 0, side: "before" },
     });
     await store.enqueue("subtask", movingChild, { title: "Moved and edited" });
     await store.move("subtask", movingChild, moveAnchor, "before");
@@ -911,6 +912,13 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
     await store.discard(store.getState().queue[0].key);
     online = false;
     await store.enqueue("subtaskMove", movingChild, {
+      placement: {
+        anchorId: moveAnchor,
+        anchorVersion:
+          store.projected().subtasks!.find((c) => c.id === moveAnchor)!
+            .orderVersion || 0,
+        side: "after",
+      },
       sourceId: moveSource,
       targetId: moveTarget,
       targetVersion: store.projected().tasks.find((t) => t.id === moveTarget)!

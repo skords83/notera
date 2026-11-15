@@ -65,6 +65,31 @@ export async function subtaskMoveScenarios(db: Database, peer: Database = db) {
       s.subtasks.find((c) => c.id === child)!.version,
     );
   };
+  // Atomic placement validates the anchor before changing either parent.
+  const invalidPlacement = await move();
+  invalidPlacement.patch.placement = {
+    anchorId: anchor,
+    anchorVersion: 99,
+    side: "before",
+  };
+  const beforePlacement = await snap();
+  await assert.rejects(mutate(db, user, invalidPlacement), { status: 409 });
+  assert.deepEqual((await snap()).subtasks, beforePlacement.subtasks);
+  assert.deepEqual((await snap()).tasks, beforePlacement.tasks);
+  const positioned = await move();
+  positioned.patch.placement = {
+    anchorId: anchor,
+    anchorVersion: 0,
+    side: "before",
+  };
+  const placedResult = await mutate(db, user, positioned);
+  assert.deepEqual(await mutate(db, user, positioned), placedResult);
+  let placed = await snap();
+  assert.ok(
+    placed.subtasks.find((c) => c.id === child)!.position <
+      placed.subtasks.find((c) => c.id === anchor)!.position,
+  );
+  await mutate(db, user, await move(target, source));
   const first = await move();
   await assert.rejects(mutate(db, other, first), { status: 403 });
   const result = await mutate(db, user, first);
@@ -97,9 +122,17 @@ export async function subtaskMoveScenarios(db: Database, peer: Database = db) {
     }),
     { status: 409 },
   );
-  await assert.rejects(run("subtask", child, { taskId: source }, 2), {
-    status: 400,
-  });
+  await assert.rejects(
+    run(
+      "subtask",
+      child,
+      { taskId: source },
+      (await snap()).subtasks.find((c) => c.id === child)!.version,
+    ),
+    {
+      status: 400,
+    },
+  );
   // Two simultaneous moves can only have one winner, including independent callers.
   const a = await move(target, source),
     b = await move(target, third);

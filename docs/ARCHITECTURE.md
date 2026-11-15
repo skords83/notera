@@ -129,3 +129,9 @@ Backupformat `notera-4` enthält die zusätzliche Spalte, aktiven Unteraufgaben 
 ## Erledigte Unteraufgaben filtern
 
 `Subtasks` leitet Fortschritt/Gesamtzahl aus allen nicht gelöschten Kindern ab und filtert ausschließlich die gerenderten Zeilen über denselben `showDone`-Zustand wie die Übersicht. Der Detailpanel-Schalter ist eine zweite zugängliche Bedienung dieses Zustands. In Erledigt/Papierkorb kann der Schalter gezielt Unteraufgaben anzeigen. Filtern erzeugt keine Mutation; gespeicherte Positionen, Status und Versionen bleiben unverändert. Beim Abhaken einer verschwindenden Zeile wandert der Fokus zum nächsten sichtbaren Schritt, sonst zum vorherigen bzw. zur Eingabe/Hinzufügen-Schaltfläche. Die Sortierung arbeitet weiterhin auf der vollständigen gespeicherten Reihenfolge einschließlich ausgeblendeter Schritte.
+
+### Drag-and-drop zwischen Hauptaufgaben
+
+`subtaskMove` akzeptiert zusätzlich optional `placement: { anchorId, anchorVersion, side }`. Ohne dieses Feld bleibt das bisherige Anhängen erhalten. Der Server prüft den lebenden Anker im Ziel und dessen Sortierversion, nummeriert die Zielreihenfolge und wechselt den Elternbezug innerhalb derselben serialisierten Transaktion. Rechte-, Kind-/Zielversionen, Statusregel und Idempotenzbelege der bisherigen Aktion gelten unverändert. Bei Fehlern wird die gesamte Transaktion zurückgerollt. Die Offlineprojektion verwendet denselben Anker und erhält die relative Reihenfolge unsichtbarer Schritte. Keine zusätzliche Mutation und keine Migration.
+
+Der vorhandene Pointer-Griff verwendet in der Übersicht gleichlistige, nicht gelöschte `data-transfer-target`-Gruppen. Pointer-Capture, Abbruch, Schwelle und Randscrollen bleiben gemeinsam mit der Sortierung. Eine getrennte temporäre React-Aufklapp-ID wird nach 550 ms gesetzt und bei Zielwechsel/Abschluss entfernt; gespeicherte Klappzustände werden dabei nicht geändert.

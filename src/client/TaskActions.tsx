@@ -16,7 +16,16 @@ export function TaskActions({
   id: string;
   onAdd?: () => void;
   ordering?: { up?: () => void; down?: () => void };
-  grip?: { id: string; scope: string; onMove: Move };
+  grip?: {
+    id: string;
+    scope: string;
+    onMove: Move;
+    onTransfer?: (
+      target: string,
+      anchor?: string,
+      side?: "before" | "after",
+    ) => void;
+  };
   onRemove?: () => void;
   onTransfer?: () => void;
   onConvert?: () => void;

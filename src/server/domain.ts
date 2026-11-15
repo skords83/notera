@@ -343,6 +343,39 @@ export async function mutate(db: Database, user: string, input: unknown) {
             },
           },
         );
+      let position: number | undefined;
+      if (p.placement) {
+        const anchor = await one(
+          tx,
+          "SELECT * FROM subtasks WHERE id=$1 AND task_id=$2",
+          [p.placement.anchorId, target.id],
+        );
+        if (
+          !anchor ||
+          anchor.data.deleted ||
+          anchor.order_version !== p.placement.anchorVersion
+        )
+          fail(
+            409,
+            "Zielposition inzwischen verändert. Bitte Verschiebung erneut wählen.",
+          );
+        const rows = (
+          await tx.query(
+            "SELECT id,position FROM subtasks WHERE task_id=$1 ORDER BY position,id",
+            [target.id],
+          )
+        ).rows;
+        const index =
+          rows.findIndex((r: any) => r.id === anchor.id) +
+          Number(p.placement.side === "after");
+        // Renumber only inside this transaction; no intermediate parent is observable.
+        for (const [i, row] of rows.entries())
+          await tx.query("UPDATE subtasks SET position=$2 WHERE id=$1", [
+            row.id,
+            i + 1 + Number(i >= index),
+          ]);
+        position = index + 1;
+      }
       version = existing.version + 1;
       const data = { ...existing.data, taskId: target.id };
       // Moving is structural even when a step later returns to the original parent.
@@ -357,6 +390,11 @@ export async function mutate(db: Database, user: string, input: unknown) {
           JSON.stringify(fields),
         ],
       );
+      if (position !== undefined)
+        await tx.query("UPDATE subtasks SET position=$2 WHERE id=$1", [
+          m.id,
+          position,
+        ]);
       for (const row of [parent, target]) {
         if (row.id === target.id && !data.done) {
           row.data.done = false;

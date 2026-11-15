@@ -1,3 +1,7 @@
+# Stand: Unteraufgaben per Drag-and-drop – 15. November 2026
+
+Basis `origin/main` bei `814fe26`, eigener Branch `feat/subtask-drag-transfer`. Sauberer Arbeitsbaum, bisheriger Branch erhalten, keine `AGENTS.md` in Repository oder übergeordneten Verzeichnissen. Drag-and-drop in der Übersicht unterstützt Wechsel zwischen Hauptaufgaben derselben Liste, temporäres Aufklappen, Anhängen und atomare Zielposition. Menü/Suchdialog bleiben erhalten. Prüfungen und offene physische Android-Abnahme: [Prüfbericht](SUBTASK-DRAG-CHECKS.md). Kein automatischer Merge und kein produktiver Rollout.
+
 # Aktueller Prüfstand – 15. November 2026
 
 Basis `origin/main` bei `aa0c3fe` einschließlich PR #10, eigener Branch `feat/task-subtask-improvements`, sauberer Ausgangsstand, keine `AGENTS.md`. Erledigte Unteraufgaben lassen sich gemeinsam mit der Übersicht und direkt im Detail filtern. Hauptaufgaben ohne nicht übertragbare Inhalte/eigene Kindhistorie können atomar als Unteraufgabe derselben Liste verschoben werden. Identität, Offline-Reload, Antwortverlust und alte Folgeaktionen sind abgesichert. Additives Schema 005 und Backupformat `notera-4`; Migrationen 001–004 unverändert.

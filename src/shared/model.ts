@@ -86,6 +86,14 @@ export const subtaskMovePatch = z
     sourceId: uuid,
     targetId: uuid,
     targetVersion: z.number().int().min(0),
+    placement: z
+      .object({
+        anchorId: uuid,
+        anchorVersion: z.number().int().min(0),
+        side: z.enum(["before", "after"]),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export const taskConvertPatch = z
