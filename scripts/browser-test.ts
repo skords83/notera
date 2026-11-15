@@ -1,3 +1,4 @@
+import { subtaskDragChecks } from "./browser-subtask-drag";
 import { taskConversionChecks } from "./browser-task-conversion";
 import { subtaskMoveChecks } from "./browser-subtask-move";
 import { syncMetadata } from "./browser-sync";
@@ -181,6 +182,7 @@ try {
   await browserRegressions(page, a);
   await orderChecks(page, a, sandra);
   await subtaskMoveChecks(page, a, sandra);
+  await subtaskDragChecks(page, a, sandra);
   await taskConversionChecks(page, a, sandra);
   expect(errors).toEqual([]);
   console.log(

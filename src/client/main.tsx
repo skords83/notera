@@ -176,6 +176,13 @@ function App() {
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(
     () => new Set(),
   );
+  const [dragExpanded, setDragExpanded] = useState<string | null>(null);
+  useEffect(() => {
+    const expand = (event: Event) =>
+      setDragExpanded((event as CustomEvent<string | null>).detail);
+    window.addEventListener("notera-drag-expand", expand);
+    return () => window.removeEventListener("notera-drag-expand", expand);
+  }, []);
   const [addRequests, setAddRequests] = useState<Record<string, number>>({});
   function toggleSubtasks(id: string) {
     setExpandedTasks((previous) => {
@@ -592,12 +599,15 @@ function App() {
                   const index = siblings.findIndex((r) => r.id === t.id);
                   const move = moveAction("task", t.id, siblings, setError);
                   const orderScope = t.listId + ":" + t.done;
-                  const expanded = expandedTasks.has(t.id);
+                  const expanded =
+                    expandedTasks.has(t.id) || dragExpanded === t.id;
                   const regionId = `task-subtasks-${t.id}`;
                   const toggleLabel = `Unteraufgaben von „${t.title}“ ${expanded ? "zuklappen" : "aufklappen"}`;
                   return (
                     <div
                       className="task-item"
+                      data-transfer-target={!t.deleted ? t.id : undefined}
+                      data-transfer-list={t.listId}
                       key={t.id}
                       data-order-id={t.id}
                       data-order-scope={manualOrder ? orderScope : undefined}

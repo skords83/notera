@@ -1,5 +1,7 @@
 import {
   initializeOrder,
+  ordered,
+  relocate,
   orderPatch,
   projectOrder,
   scopeRows,
@@ -266,6 +268,22 @@ export function projected(local: Local = state): Snapshot {
             .filter((c) => c.taskId === target.id)
             .map((c) => c.position || 0),
         ) + 1;
+      const placement = subtaskMovePatch.parse(m.patch).placement;
+      if (placement) {
+        const rows = ordered(
+          result.subtasks.filter((c) => c.taskId === target.id),
+        );
+        if (!rows.some((c) => c.id === placement.anchorId && !c.deleted))
+          continue;
+        relocate(
+          [...rows, child],
+          child.id,
+          placement.anchorId,
+          placement.side,
+        ).forEach((c, i) => {
+          c.position = i + 1;
+        });
+      }
       child.taskId = target.id;
       child.orderVersion = (child.orderVersion || 0) + 1;
       if (!child.done) {

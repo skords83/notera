@@ -1086,3 +1086,17 @@ dialog .completed-subtasks-toggle {
   width: fit-content;
   margin-left: auto;
 }
+
+.transfer-hover {
+  outline: 3px solid var(--blue);
+  outline-offset: -3px;
+  background: color-mix(in srgb, var(--blue) 12%, var(--bg));
+}
+
+.transfer-append {
+  border-top: 3px solid var(--blue);
+  color: var(--text);
+  font-size: 0.8rem;
+  padding: 4px 12px;
+  pointer-events: none;
+}

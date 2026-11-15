@@ -54,6 +54,7 @@ export function SortHandle({
   buttonRef,
   expanded,
   controls,
+  onTransfer,
 }: {
   id: string;
   title: string;
@@ -64,6 +65,11 @@ export function SortHandle({
   buttonRef: RefObject<HTMLButtonElement | null>;
   expanded: boolean;
   controls: string;
+  onTransfer?: (
+    target: string,
+    anchor?: string,
+    side?: "before" | "after",
+  ) => void;
 }) {
   const suppressClick = useRef(false);
   const cleanup = useRef<() => void>(() => {});
@@ -77,8 +83,8 @@ export function SortHandle({
       aria-expanded={expanded}
       aria-controls={controls}
       aria-label={`Aktionen für „${title}“`}
-      aria-description="Aktivieren für Aktionen, etwa Verschieben und Sortieren. Ziehen zum Sortieren."
-      title="Ziehen zum Sortieren · Tippen für Aktionen"
+      aria-description="Aktivieren für Aktionen, etwa Verschieben und Sortieren. Ziehen zum Sortieren oder Verschieben."
+      title="Ziehen zum Sortieren oder Verschieben · Tippen für Aktionen"
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -107,12 +113,77 @@ export function SortHandle({
           target: HTMLElement | null = null,
           side: "before" | "after" = "before",
           frame = 0;
+        const sourceList = onTransfer
+          ? store.projected().tasks.find((t) => t.id === scope && !t.deleted)
+              ?.listId
+          : undefined;
+        let transferTarget: HTMLElement | null = null;
+        let appendPreview: HTMLElement | null = null;
+        let hoverId: string | null = null;
+        let hoverTimer = 0;
+        const expand = (id: string | null) =>
+          window.dispatchEvent(
+            new CustomEvent("notera-drag-expand", { detail: id }),
+          );
         const clearTarget = () => {
+          transferTarget?.classList.remove("transfer-hover");
+          appendPreview?.remove();
+          appendPreview = null;
+          transferTarget = null;
           target?.classList.remove("insert-before", "insert-after");
           target = null;
         };
         const locate = () => {
           clearTarget();
+          if (onTransfer) {
+            const hit = document
+              .elementFromPoint(x, y)
+              ?.closest<HTMLElement>("[data-transfer-target]");
+            if (
+              hit &&
+              sourceList &&
+              hit.dataset.transferList === sourceList &&
+              hit.dataset.transferTarget !== scope
+            ) {
+              transferTarget = hit;
+              hit.classList.add("transfer-hover");
+              const targetId = hit.dataset.transferTarget!;
+              if (hoverId !== targetId) {
+                clearTimeout(hoverTimer);
+                expand(null);
+                hoverId = targetId;
+                hoverTimer = window.setTimeout(() => expand(targetId), 550);
+              }
+              target =
+                document
+                  .elementFromPoint(x, y)
+                  ?.closest<HTMLElement>(".subtask-row") || null;
+              if (target && target.dataset.orderScope === targetId) {
+                const b = target.getBoundingClientRect();
+                side = y < b.top + b.height / 2 ? "before" : "after";
+                target.classList.add("insert-" + side);
+              } else {
+                target = null;
+                appendPreview = document.createElement("div");
+                appendPreview.className = "transfer-append";
+                appendPreview.textContent = "Am Ende einfügen";
+                hit.appendChild(appendPreview);
+              }
+              return;
+            }
+            if (hoverId) {
+              clearTimeout(hoverTimer);
+              hoverId = null;
+              expand(null);
+            }
+            // Foreign tasks and blank space never become an implicit source drop.
+            if (
+              !document
+                .elementFromPoint(x, y)
+                ?.closest(`[data-order-scope="${scope}"]`)
+            )
+              return;
+          }
           const bounds = root.getBoundingClientRect();
           if (
             x < bounds.left ||
@@ -167,8 +238,9 @@ export function SortHandle({
             if (delta) {
               if (node) node.scrollTop += delta;
               else window.scrollBy(0, delta);
-              locate();
             }
+            // Keep the preview aligned when a dwelling target expands or rerenders.
+            if (delta || onTransfer) locate();
           }
           frame = requestAnimationFrame(scroll);
         };
@@ -196,18 +268,44 @@ export function SortHandle({
           }
           if (dragging) {
             event.preventDefault();
-            if (ghost) ghost.style.top = y - 20 + "px";
+            if (ghost) {
+              if (onTransfer) {
+                ghost.style.maxWidth = "calc(100vw - 32px)";
+                ghost.style.left =
+                  Math.max(
+                    16,
+                    Math.min(
+                      x - ghost.offsetWidth / 2,
+                      innerWidth - ghost.offsetWidth - 16,
+                    ),
+                  ) + "px";
+                ghost.style.top =
+                  Math.max(
+                    8,
+                    Math.min(y + 16, innerHeight - ghost.offsetHeight - 8),
+                  ) + "px";
+              } else ghost.style.top = y - 20 + "px";
+            }
             locate();
           }
         };
         const finish = (commit: boolean) => {
           const anchor = target?.dataset.orderId;
+          const destination = transferTarget?.dataset.transferTarget;
+          const placementSide = side;
           cleanup.current();
           button.focus({ preventScroll: true });
-          if (commit && dragging && anchor) onMove(anchor, side);
+          if (commit && dragging && destination)
+            onTransfer?.(destination, anchor, placementSide);
+          else if (commit && dragging && anchor) onMove(anchor, placementSide);
         };
         const up = (event: PointerEvent) => {
-            if (event.pointerId === pointerId) finish(true);
+            if (event.pointerId === pointerId) {
+              x = event.clientX;
+              y = event.clientY;
+              if (dragging) locate();
+              finish(true);
+            }
           },
           cancel = () => {
             suppressClick.current = true;
@@ -222,6 +320,8 @@ export function SortHandle({
         };
         cleanup.current = () => {
           cancelAnimationFrame(frame);
+          clearTimeout(hoverTimer);
+          expand(null);
           clearTarget();
           ghost?.remove();
           row.classList.remove("order-dragging");

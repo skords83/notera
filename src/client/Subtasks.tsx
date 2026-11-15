@@ -127,7 +127,39 @@ function SubtaskRow({
         <TaskActions
           id={`sub-${child.id}-${compact ? "inline" : "detail"}`}
           title={child.title}
-          grip={{ id: child.id, scope: child.taskId, onMove: move }}
+          grip={{
+            id: child.id,
+            scope: child.taskId,
+            onMove: move,
+            onTransfer: compact
+              ? (targetId, anchorId, side) => {
+                  const snap = store.projected();
+                  const target = snap.tasks.find(
+                    (t) => t.id === targetId && !t.deleted,
+                  );
+                  const anchor = (snap.subtasks || []).find(
+                    (c) => c.id === anchorId,
+                  );
+                  if (!target) return;
+                  void store
+                    .enqueue("subtaskMove", child.id, {
+                      sourceId: child.taskId,
+                      targetId,
+                      targetVersion: target.version,
+                      ...(anchor && side
+                        ? {
+                            placement: {
+                              anchorId: anchor.id,
+                              anchorVersion: anchor.orderVersion || 0,
+                              side,
+                            },
+                          }
+                        : {}),
+                    })
+                    .catch((e) => report(e.message));
+                }
+              : undefined,
+          }}
           onTransfer={onTransfer}
           onRemove={!compact ? () => void change({ deleted: true }) : undefined}
           ordering={{
