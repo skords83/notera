@@ -69,6 +69,8 @@ export const subtaskPatch = z
   .partial()
   .strict();
 export type Subtask = {
+  createdBy?: string;
+  completedAt?: string | null;
   position?: number;
   orderVersion?: number;
   id: string;
@@ -82,6 +84,12 @@ export type Subtask = {
 export const subtaskMovePatch = z
   .object({
     sourceId: uuid,
+    targetId: uuid,
+    targetVersion: z.number().int().min(0),
+  })
+  .strict();
+export const taskConvertPatch = z
+  .object({
     targetId: uuid,
     targetVersion: z.number().int().min(0),
   })
@@ -163,6 +171,8 @@ export type User = {
 export type Snapshot = {
   orderReceipts?: string[];
   moveReceipts?: string[];
+  conversionReceipts?: string[];
+  convertedTasks?: { id: string; listId: string }[];
   userId?: string;
   cursor: number;
   reset: boolean;
@@ -183,6 +193,7 @@ export const mutationSchema = z
       "subtask",
       "completion",
       "subtaskMove",
+      "taskConvert",
       "order",
     ]),
     id: uuid,

@@ -99,6 +99,9 @@ export async function subtaskChecks(page: Page, context: BrowserContext) {
   await page.getByText("Schatzsuche planen", { exact: true }).click();
   await expect(page.locator("dialog .subtasks h3")).toContainText("1 von 3");
   await page
+    .getByLabel("Erledigte Unteraufgaben zeigen", { exact: true })
+    .check();
+  await page
     .getByRole("button", {
       name: "Hinweise vorbereiten wieder öffnen",
       exact: true,
@@ -134,6 +137,9 @@ export async function subtaskChecks(page: Page, context: BrowserContext) {
   await page.getByRole("button", { name: "Schließen", exact: true }).click();
   await page.reload();
   await page.getByText("Offline Vorhaben", { exact: true }).click();
+  await page
+    .getByLabel("Erledigte Unteraufgaben zeigen", { exact: true })
+    .check();
   await expect(
     page.getByRole("button", {
       name: "Offline Schritt wieder öffnen",

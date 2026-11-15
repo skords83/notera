@@ -627,6 +627,186 @@ test("persistent offline queue: reload, retries, session expiry, conflicts and a
     assert.equal(store.getState().queue[0].status, 409);
     await store.discard(store.getState().queue[0].key);
 
+    // Task conversion is persisted across reloads, including entirely local tasks.
+    online = false;
+    const conversionSource = randomUUID(),
+      conversionTarget = randomUUID(),
+      conversionAnchor = randomUUID();
+    await store.enqueue("task", conversionSource, {
+      title: "Convert offline",
+      listId: inbox,
+    });
+    await store.enqueue("task", conversionTarget, {
+      title: "Conversion target",
+      listId: inbox,
+    });
+    await store.enqueue("subtask", conversionAnchor, {
+      title: "Anchor",
+      taskId: conversionTarget,
+    });
+    await store.enqueue("taskConvert", conversionSource, {
+      targetId: conversionTarget,
+      targetVersion: 0,
+    });
+    assert.ok(!store.projected().tasks.some((t) => t.id === conversionSource));
+    assert.equal(
+      store.projected().subtasks!.find((c) => c.id === conversionSource)!
+        .taskId,
+      conversionTarget,
+    );
+    await store.enqueue("subtask", conversionSource, {
+      title: "Converted and edited",
+    });
+    await store.move("subtask", conversionSource, conversionAnchor, "before");
+    store = await load("conversion-offline-reload");
+    await store.init();
+    assert.equal(
+      store.projected().subtasks!.find((c) => c.id === conversionSource)!.title,
+      "Converted and edited",
+    );
+    online = true;
+    await store.sync();
+    assert.deepEqual(store.getState().queue, []);
+    let converted = await snapshot(db, user, 0, randomUUID());
+    assert.equal(
+      converted.subtasks.find((c) => c.id === conversionSource)!.title,
+      "Converted and edited",
+    );
+    assert.ok(
+      converted.subtasks.find((c) => c.id === conversionSource)!.position <
+        converted.subtasks.find((c) => c.id === conversionAnchor)!.position,
+    );
+    // Lose the response after commit. Pull contains receipt and structural marker.
+    const lossSource = randomUUID();
+    await store.enqueue("task", lossSource, {
+      title: "Lost conversion response",
+      listId: inbox,
+    });
+    await store.sync();
+    online = false;
+    const lossKey = await store.enqueue("taskConvert", lossSource, {
+      targetId: conversionTarget,
+      targetVersion: store
+        .projected()
+        .tasks.find((t) => t.id === conversionTarget)!.version,
+    });
+    loseResponse = true;
+    online = true;
+    await store.sync();
+    assert.ok(store.getState().queue.some((q) => q.key === lossKey));
+    store = await load("conversion-response-loss-reload");
+    await store.init();
+    await store.sync();
+    assert.equal(
+      store.projected().subtasks!.filter((c) => c.id === lossSource).length,
+      1,
+    );
+    assert.deepEqual(store.getState().queue, []);
+    // An editor opened before conversion cannot optimistically resurrect the task.
+    online = false;
+    await store.enqueue("task", lossSource, { title: "Stale editor" }, 1);
+    assert.ok(!store.projected().tasks.some((t) => t.id === lossSource));
+    online = true;
+    await store.sync();
+    assert.equal(store.getState().queue[0].status, 409);
+    assert.equal(store.getState().queue[0].patch.title, "Stale editor");
+    await assert.rejects(
+      store.resolveConflict(store.getState().queue[0].key),
+      /nicht mehr vorhanden/,
+    );
+    await store.discard(store.getState().queue[0].key);
+    // A concurrent source edit rejects conversion and keeps the optimistic follow-up blocked.
+    const conflictSource = randomUUID();
+    await store.enqueue("task", conflictSource, {
+      title: "Conversion conflict",
+      listId: inbox,
+    });
+    await store.sync();
+    online = false;
+    const conflictKey = await store.enqueue("taskConvert", conflictSource, {
+      targetId: conversionTarget,
+      targetVersion: store
+        .projected()
+        .tasks.find((t) => t.id === conversionTarget)!.version,
+    });
+    await store.enqueue("subtask", conflictSource, {
+      title: "Dependent conversion edit",
+    });
+    await mutate(db, user, {
+      entity: "task",
+      id: conflictSource,
+      version: 1,
+      patch: { notes: "Concurrent notes" },
+      key: randomUUID(),
+      device: randomUUID(),
+    });
+    online = true;
+    await store.sync();
+    assert.equal(
+      store.getState().queue.find((q) => q.key === conflictKey)!.status,
+      409,
+    );
+    assert.equal(store.getState().queue.length, 2);
+    assert.ok(store.projected().tasks.some((t) => t.id === conflictSource));
+    assert.ok(
+      !store.projected().subtasks!.some((c) => c.id === conflictSource),
+      "failed conversion cannot project an orphan subtask",
+    );
+    await store.discard(conflictKey);
+    await store.sync();
+    assert.equal(store.getState().queue[0].status, 410);
+    await store.discard(store.getState().queue[0].key);
+
+    // Offline conversion is pruned on real membership revocation, with a visible notice.
+    const revokeList = randomUUID(),
+      revokeSource = randomUUID(),
+      revokeTarget = randomUUID();
+    const remoteCommand = (
+      entity: "list" | "task",
+      id: string,
+      patch: Record<string, unknown>,
+      version = 0,
+    ) =>
+      mutate(db, other, {
+        entity,
+        id,
+        patch,
+        version,
+        key: randomUUID(),
+        device: randomUUID(),
+      });
+    await remoteCommand("list", revokeList, {
+      name: "Conversion revocation",
+      members: [user],
+    });
+    await remoteCommand("task", revokeSource, {
+      title: "Revoked source",
+      listId: revokeList,
+    });
+    await remoteCommand("task", revokeTarget, {
+      title: "Revoked target",
+      listId: revokeList,
+    });
+    await store.sync();
+    online = false;
+    await store.enqueue("taskConvert", revokeSource, {
+      targetId: revokeTarget,
+      targetVersion: 1,
+    });
+    await remoteCommand("list", revokeList, { members: [other] }, 1);
+    store = await load("conversion-revocation-reload");
+    await store.init();
+    online = true;
+    await store.sync();
+    assert.equal(store.getState().queue.length, 0);
+    assert.ok(
+      !store
+        .projected()
+        .tasks.some((t) => t.id === revokeSource || t.id === revokeTarget),
+    );
+    assert.ok(!store.projected().subtasks!.some((c) => c.id === revokeSource));
+    assert.match(store.getState().notice!, /Zugriff entzogen/);
+
     // New local parents/steps, move, follow-up edit and sort survive an offline reload.
     online = false;
     const moveSource = randomUUID(),

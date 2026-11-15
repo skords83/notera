@@ -1077,3 +1077,12 @@ dialog .login {
 .transfer-target span {
   min-width: 0;
 }
+
+/* Keep the detail filter's checkbox next to its text and retain a touch-sized label. */
+dialog .completed-subtasks-toggle {
+  margin: 8px 0;
+}
+.detail-panel > .task-actions {
+  width: fit-content;
+  margin-left: auto;
+}

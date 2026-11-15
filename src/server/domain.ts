@@ -6,6 +6,7 @@ import {
   taskPatch,
   subtaskPatch,
   subtaskMovePatch,
+  taskConvertPatch,
   completionPatch,
   prefPatch,
   listPatch,
@@ -84,6 +85,14 @@ export async function mutate(db: Database, user: string, input: unknown) {
     let parent: any;
     let before: any;
     let target: any;
+    if (m.entity === "taskConvert") {
+      const p = taskConvertPatch.parse(m.patch);
+      existing = await one(tx, "SELECT * FROM tasks WHERE id=$1", [m.id]);
+      target = await one(tx, "SELECT * FROM tasks WHERE id=$1", [p.targetId]);
+      if (!existing || !target) fail(410, "Aufgabe nicht mehr vorhanden.");
+      await access(tx, user, existing.list_id);
+      await access(tx, user, target.list_id);
+    }
     if (m.entity === "subtaskMove") {
       const p = subtaskMovePatch.parse(m.patch);
       existing = await one(tx, "SELECT * FROM subtasks WHERE id=$1", [m.id]);
@@ -149,6 +158,8 @@ export async function mutate(db: Database, user: string, input: unknown) {
       const parent = await one(tx, "SELECT * FROM tasks WHERE id=$1", [m.id]);
       if (!parent) fail(410, "Aufgabe nicht mehr vorhanden.");
       await access(tx, user, parent.list_id);
+      if (parent.converted_to)
+        fail(409, "Aufgabe wurde in eine Unteraufgabe umgewandelt.");
       existing = await one(
         tx,
         "SELECT * FROM preferences WHERE user_id=$1 AND task_id=$2",
@@ -173,8 +184,143 @@ export async function mutate(db: Database, user: string, input: unknown) {
         fail(409, "Idempotenzschlüssel bereits für andere Daten verwendet.");
       return old.result;
     }
+    // Reject even explicit restore and old completion/undo/preference actions.
+    // Conversion replay is checked above before this guard, after current access.
+    if (existing?.converted_to || parent?.converted_to)
+      fail(
+        409,
+        "Die Hauptaufgabe wurde bereits in eine Unteraufgabe umgewandelt. Bitte dort weiterarbeiten.",
+      );
     let version = 1;
-    if (m.entity === "subtaskMove") {
+    if (m.entity === "taskConvert") {
+      const p = taskConvertPatch.parse(m.patch);
+      if (
+        existing.deleted_at ||
+        target.deleted_at ||
+        target.converted_to ||
+        existing.id === target.id ||
+        existing.list_id !== target.list_id ||
+        existing.version !== m.version ||
+        target.version !== p.targetVersion
+      )
+        fail(
+          409,
+          "Aufgabe oder Ziel inzwischen verändert. Bitte Umwandlung erneut wählen.",
+        );
+      const children = (
+        await tx.query("SELECT data FROM subtasks WHERE task_id=$1", [m.id])
+      ).rows;
+      if (children.some((c) => !c.data.deleted))
+        fail(
+          409,
+          "Diese Hauptaufgabe hat eigene Unteraufgaben. Eine weitere Verschachtelung ist nicht möglich.",
+        );
+      if (children.length)
+        fail(
+          409,
+          "Diese Aufgabe hat entfernte Unteraufgaben mit Verlauf. Die Umwandlung ist zum Schutz dieser Daten noch nicht möglich.",
+        );
+      const reasons: string[] = [];
+      const data = existing.data;
+      if (data.notes) reasons.push("Notizen");
+      if (data.links?.length) reasons.push("Links");
+      if (data.due) reasons.push("Termin");
+      if (data.assignee) reasons.push("Zuweisung");
+      if (
+        Object.keys(data).some(
+          (k) =>
+            ![
+              "title",
+              "done",
+              "notes",
+              "links",
+              "due",
+              "assignee",
+              "listId",
+              "deleted",
+              "completedAt",
+            ].includes(k),
+        )
+      )
+        reasons.push("weitere Aufgabenfelder");
+      const prefs = (
+        await tx.query("SELECT data FROM preferences WHERE task_id=$1", [m.id])
+      ).rows;
+      if (
+        prefs.some(
+          (p) =>
+            p.data.today ||
+            p.data.starred ||
+            p.data.hideOverdue ||
+            Object.keys(p.data).some(
+              (k) => !["today", "starred", "hideOverdue"].includes(k),
+            ),
+        )
+      )
+        reasons.push(
+          "persönliche Auswahl oder Markierung eines Listenmitglieds",
+        );
+      if (
+        (await tx.query("SELECT id FROM reminders WHERE task_id=$1", [m.id]))
+          .rows.length
+      )
+        reasons.push("Erinnerungen");
+      if (reasons.length)
+        fail(
+          409,
+          "Umwandlung nicht möglich: " +
+            reasons.join(", ") +
+            ". Unteraufgaben unterstützen diese Daten noch nicht. Bitte zuerst bewusst entfernen.",
+        );
+      if (await one(tx, "SELECT id FROM subtasks WHERE id=$1", [m.id]))
+        fail(409, "Diese Identität ist bereits als Unteraufgabe vorhanden.");
+      version = existing.version + 1;
+      await tx.query(
+        "INSERT INTO subtasks(id,task_id,data,version,field_versions,position,order_version) VALUES($1,$2,$3,$4,$5,(SELECT coalesce(max(position),0)+1 FROM subtasks WHERE task_id=$2),1)",
+        [
+          m.id,
+          target.id,
+          JSON.stringify({
+            title: data.title,
+            done: data.done,
+            completedAt: data.completedAt ?? null,
+            createdBy: existing.created_by,
+            deleted: false,
+            taskId: target.id,
+          }),
+          version,
+          JSON.stringify({
+            title: version,
+            done: version,
+            taskId: version,
+            deleted: version,
+          }),
+        ],
+      );
+      // Empty structural marker prevents every stale task action from recreating it.
+      await tx.query(
+        "UPDATE tasks SET converted_to=id,data='{}',field_versions='{}',version=$2,order_version=order_version+1,deleted_at=now(),updated_at=now() WHERE id=$1",
+        [m.id, version],
+      );
+      await tx.query("DELETE FROM preferences WHERE task_id=$1", [m.id]);
+      target.field_versions.subtasks = target.version + 1;
+      if (!data.done) {
+        target.data.done = false;
+        target.data.completedAt = null;
+        target.field_versions.done = target.version + 1;
+      }
+      await tx.query(
+        "UPDATE tasks SET data=$2,field_versions=$3,version=version+1,updated_at=now() WHERE id=$1",
+        [
+          target.id,
+          JSON.stringify(target.data),
+          JSON.stringify(target.field_versions),
+        ],
+      );
+      await change(tx, "task", m.id);
+      await change(tx, "task", target.id);
+      await change(tx, "subtask", m.id);
+    } else if (m.entity === "subtaskMove") {
       const p = subtaskMovePatch.parse(m.patch);
       if (
         existing.task_id !== p.sourceId ||
@@ -314,6 +460,14 @@ export async function mutate(db: Database, user: string, input: unknown) {
           "Unteraufgaben können nicht einer anderen Hauptaufgabe zugeordnet werden.",
         );
       if (!existing) {
+        if (
+          await one(
+            tx,
+            "SELECT id FROM tasks WHERE id=$1 AND converted_to IS NOT NULL",
+            [m.id],
+          )
+        )
+          fail(410, "Umgewandelte Unteraufgabe endgültig entfernt.");
         if (m.version !== 0) fail(410, "Unteraufgabe nicht mehr vorhanden.");
         if (!p.title || !p.taskId || p.deleted)
           fail(400, "Titel und Hauptaufgabe fehlen.");
@@ -330,6 +484,12 @@ export async function mutate(db: Database, user: string, input: unknown) {
         ...p,
         taskId: parent.id,
       };
+      if (
+        "completedAt" in data &&
+        "done" in p &&
+        p.done !== existing?.data.done
+      )
+        data.completedAt = p.done ? new Date().toISOString() : null;
       version = (existing?.version || 0) + 1;
       const fields = { ...existing?.field_versions };
       for (const k of Object.keys(p)) {
@@ -404,10 +564,15 @@ export async function mutate(db: Database, user: string, input: unknown) {
             id: c.id,
             done: c.data.done,
             version: c.version + 1,
+            ...("completedAt" in c.data
+              ? { completedAt: c.data.completedAt }
+              : {}),
           })),
           version: parent.version + 1,
         };
         for (const c of open) {
+          if ("completedAt" in c.data && !c.data.done)
+            c.data.completedAt = new Date().toISOString();
           c.data.done = true;
           c.field_versions.done = c.version + 1;
           await tx.query(
@@ -455,6 +620,7 @@ export async function mutate(db: Database, user: string, input: unknown) {
         for (const prev of before.subtasks) {
           const c = active.find((c) => c.id === prev.id)!;
           c.data.done = prev.done;
+          if ("completedAt" in prev) c.data.completedAt = prev.completedAt;
           c.field_versions.done = c.version + 1;
           await tx.query(
             "UPDATE subtasks SET data=$2,version=version+1,field_versions=$3 WHERE id=$1",
@@ -502,7 +668,7 @@ export async function mutate(db: Database, user: string, input: unknown) {
         if (p.deleted) {
           const content = await one(
             tx,
-            "SELECT count(*) AS n FROM tasks WHERE list_id=$1",
+            "SELECT count(*) AS n FROM tasks WHERE list_id=$1 AND converted_to IS NULL",
             [m.id],
           );
           if (Number(content.n) > 0)
@@ -667,7 +833,7 @@ export async function mutate(db: Database, user: string, input: unknown) {
     }
     const cursor = await change(tx, m.entity, m.id);
     const result = {
-      ...(["order", "subtaskMove"].includes(m.entity)
+      ...(["order", "subtaskMove", "taskConvert"].includes(m.entity)
         ? { entity: m.entity }
         : {}),
       version,
@@ -743,7 +909,7 @@ export async function snapshot(
     }
     const tasks = (
       await tx.query(
-        "SELECT t.* FROM tasks t JOIN memberships m ON m.list_id=t.list_id JOIN lists l ON l.id=t.list_id WHERE m.user_id=$1 AND l.deleted_at IS NULL",
+        "SELECT t.* FROM tasks t JOIN memberships m ON m.list_id=t.list_id JOIN lists l ON l.id=t.list_id WHERE m.user_id=$1 AND l.deleted_at IS NULL AND t.converted_to IS NULL",
         [user],
       )
     ).rows.map(task);
@@ -763,6 +929,18 @@ export async function snapshot(
       [user, device, clock.cursor],
     );
     return {
+      convertedTasks: (
+        await tx.query(
+          "SELECT t.id,t.list_id FROM tasks t JOIN memberships m ON m.list_id=t.list_id JOIN lists l ON l.id=t.list_id WHERE m.user_id=$1 AND l.deleted_at IS NULL AND t.converted_to IS NOT NULL",
+          [user],
+        )
+      ).rows.map((r) => ({ id: r.id as string, listId: r.list_id as string })),
+      conversionReceipts: (
+        await tx.query(
+          "SELECT key FROM mutations WHERE user_id=$1 AND result->>'entity'='taskConvert'",
+          [user],
+        )
+      ).rows.map((r) => r.key as string),
       moveReceipts: (
         await tx.query(
           "SELECT key FROM mutations WHERE user_id=$1 AND result->>'entity'='subtaskMove'",
@@ -807,7 +985,7 @@ export async function maintain(db: Database, days = 30) {
   return db.transaction(async (tx) => {
     const rows = (
       await tx.query(
-        "SELECT id FROM tasks WHERE deleted_at < now()-($1 * interval '1 day')",
+        "SELECT id FROM tasks WHERE converted_to IS NULL AND deleted_at < now()-($1 * interval '1 day')",
         [days],
       )
     ).rows;

@@ -17,7 +17,7 @@ test("manual order: permissions, status, concurrency, stable IDs and replay", as
     await db.migrate();
     const { user, device } = await orderScenarios(db);
     const saved = await backup(db);
-    assert.equal(saved.format, "notera-3");
+    assert.equal(saved.format, "notera-4");
     process.env.DATA_DIR = dir + "/restore";
     target = new Database();
     await target.migrate();

@@ -10,6 +10,7 @@ export function TaskActions({
   grip,
   onRemove,
   onTransfer,
+  onConvert,
 }: {
   title: string;
   id: string;
@@ -18,6 +19,7 @@ export function TaskActions({
   grip?: { id: string; scope: string; onMove: Move };
   onRemove?: () => void;
   onTransfer?: () => void;
+  onConvert?: () => void;
 }) {
   const popupId = useId();
   const [open, setOpen] = useState(false);
@@ -74,6 +76,18 @@ export function TaskActions({
               }}
             >
               Unteraufgabe hinzufügen
+            </button>
+          )}
+          {onConvert && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                trigger.current?.focus();
+                onConvert();
+              }}
+            >
+              Als Unteraufgabe verschieben
             </button>
           )}
           {onTransfer && (
