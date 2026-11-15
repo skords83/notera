@@ -19,7 +19,7 @@ export async function backup(db: Database) {
     for (const table of tables)
       data[table] = (await tx.query(`SELECT * FROM ${table}`)).rows;
     return {
-      format: "notera-3",
+      format: "notera-4",
       createdAt: new Date().toISOString(),
       tables: data,
     };
@@ -27,7 +27,7 @@ export async function backup(db: Database) {
 }
 export async function restore(db: Database, input: any) {
   if (
-    !["notera-1", "notera-2", "notera-3"].includes(input?.format) ||
+    !["notera-1", "notera-2", "notera-3", "notera-4"].includes(input?.format) ||
     !input.tables ||
     tables.some(
       (t) =>
@@ -65,7 +65,7 @@ export async function restore(db: Database, input: any) {
         );
       }
     }
-    if (input.format !== "notera-3") {
+    if (["notera-1", "notera-2"].includes(input.format)) {
       await tx.query(
         "WITH ranked AS (SELECT id,row_number() OVER (PARTITION BY list_id ORDER BY updated_at,id) AS n FROM tasks) UPDATE tasks SET position=ranked.n FROM ranked WHERE tasks.id=ranked.id",
       );

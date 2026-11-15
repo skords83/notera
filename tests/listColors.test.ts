@@ -68,7 +68,7 @@ test("migration upgrades existing lists and restores old/new backups including c
     await db.migrate();
     assert.deepEqual(
       (await db.query("SELECT * FROM tasks WHERE id=$1", [taskId])).rows[0],
-      { ...oldTask, position: 1, order_version: 0 },
+      { ...oldTask, position: 1, order_version: 0, converted_to: null },
     );
     assert.equal((await db.query("SELECT * FROM subtasks")).rows.length, 0);
     assert.equal(

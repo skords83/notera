@@ -1,3 +1,4 @@
+import { conversionScenarios } from "../tests/task-conversion-scenarios";
 import { subtaskMoveScenarios } from "../tests/subtask-move-scenarios";
 import { orderScenarios } from "../tests/order-scenarios";
 /** Run only inside the disposable CI Compose installation. Creates and drops its own databases. */
@@ -60,7 +61,12 @@ try {
   await source.migrate();
   assert.deepEqual(
     (await source.query("SELECT * FROM tasks")).rows,
-    old.map((r) => ({ ...r, position: 1, order_version: 0 })),
+    old.map((r) => ({
+      ...r,
+      position: 1,
+      order_version: 0,
+      converted_to: null,
+    })),
   );
   await mutate(source, user, {
     key: randomUUID(),
@@ -97,6 +103,7 @@ try {
   opened.push(peer);
   const orderUser = await orderScenarios(source, peer);
   const moveUser = await subtaskMoveScenarios(source, peer);
+  const converted = await conversionScenarios(source, peer);
   const saved = await backup(source);
   await target.migrate();
   await restore(target, saved);
@@ -109,6 +116,14 @@ try {
       .done,
     false,
   );
+  const a = await snapshot(source, converted.user, 0, device);
+  const b = await snapshot(target, converted.user, 0, device);
+  assert.deepEqual(
+    b.convertedTasks.sort((a, b) => a.id.localeCompare(b.id)),
+    a.convertedTasks.sort((a, b) => a.id.localeCompare(b.id)),
+  );
+  assert.deepEqual(b.subtasks, a.subtasks);
+  assert.deepEqual(b.conversionReceipts.sort(), a.conversionReceipts.sort());
   const restoredMove = await snapshot(target, moveUser.user, 0, device);
   const sourceMove = await snapshot(source, moveUser.user, 0, device);
   assert.deepEqual(restoredMove.subtasks, sourceMove.subtasks);
