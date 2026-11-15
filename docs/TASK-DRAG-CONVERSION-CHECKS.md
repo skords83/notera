@@ -1,0 +1,25 @@
+# Prüfbericht: Hauptaufgabe per Drag-and-drop umwandeln
+
+Basis: `origin/main` bei `68c2cf0`, am 15. November 2026 frisch geholt. Eigener Branch `feat/task-drag-conversion`. Arbeitsbaum zu Beginn sauber; der vorherige Branch `feat/subtask-drag-transfer` mit seinen Commits blieb erhalten. Keine AGENTS.md im Repository oder den übergeordneten Verzeichnissen vorhanden. Keine produktiven Daten, kein Merge und kein Rollout.
+
+## Verhalten und Schutzgrenzen
+
+Der vorhandene Griff startet weiterhin die Sortierung. Eine horizontale Linie kennzeichnet deren Position. Ausschließlich der separate, eingerückte Bereich „Als Unteraufgabe ablegen“ einer anderen Hauptaufgabe derselben Liste aktiviert die Umwandlung. Er zeigt Rahmen und eingerückte Titelvorschau statt Sortierlinie. Ein eigener Platz unter den Aufgabeninhalten verhindert, dass beim Start des Ziehens Zeilen springen oder Titel durch die Ablagebereiche überdeckt werden. Beim Verweilen öffnet sich das Ziel nach 550 ms vorübergehend; Ende und Abbruch stellen den bisherigen Klappzustand wieder her.
+
+Die Ausführung reiht ausschließlich die vorhandene `taskConvert`-Aktion mit Ziel-ID und Zielversion ein. Domain, Server und Offline-Protokoll bleiben unverändert. UUID, Titel und Status bleiben erhalten, die Position ist das Ende der Unteraufgaben. Ein offener Schritt öffnet ein erledigtes Ziel nach bestehender Regel. Es gibt keine dritte Ebene, listenübergreifende Umwandlung oder automatische Datenbereinigung. Menü und Suchdialog bleiben bestehen.
+
+`conversionBlockers` wird während des Ziehens aus dem aktuellen projizierten Datenstand ausgewertet. Eigene aktive oder entfernte Unteraufgaben, Notizen, Links, Termine, Zuweisung und sichtbare persönliche Präferenzen sperren den Bereich mit Erklärung. Fremde private Präferenzen sind absichtlich nicht im Client sichtbar: Die Vorschau ist keine Freigabe durch den Server. Dessen vollständige Datenverlust-, Rechte- und Versionsprüfung bleibt verbindlich; Ablehnungen laufen durch den bestehenden Konfliktdialog.
+
+## Prüfungen
+
+- `npm test`: 25 Tests bestanden. Einschließlich vorhandener Domain- und Offline-Szenarien für UUID/Status, aktive und entfernte Kinder, nicht übertragbare Daten, private Präferenzen eines zweiten Mitglieds, Rechteentzug, Quell-/Zielversionen, konkurrierende Änderungen, Antwortverlust/Receipt-Replay und veraltete Folgeaktionen.
+- `npm run build`: TypeScript und Produktionsbuild erfolgreich; vorhandene Warnung zur Bundlegröße.
+- `npm run test:browser`: vollständiger Chromium-Browserlauf mit temporärer Datenbank und zwei Wegwerfkonten erfolgreich. Der ergänzte isolierte Drag-Lauf und der abschließende vollständige Lauf einschließlich der zusätzlichen Scroll-/Touch-Fälle sind ebenfalls erfolgreich.
+- Neuer Ablauf `scripts/browser-task-drag-conversion.ts`: getrennte Sortier-/Umwandlungsmarkierung, Escape, ungültiges Außenziel, lokale Notiz-Sperre, vorübergehendes Öffnen, Hell/Dunkel bei 1360/360/320 Pixeln, Touch-Abbruch und erfolgreiche Touch-Umwandlung, Anhängen hinter einem vorhandenen Schritt, erledigtes Ziel, Offline-Reload und Abgleich mit dem zweiten Konto; außerdem Randscrollen mit Escape sowie normales Touchscrollen außerhalb des Griffs bei unveränderter Reihenfolge.
+- Vorhandene Browserprüfungen bleiben Teil des Laufs: Menüalternative, offene/erledigte Schritte, fremde private Markierung mit Serverablehnung, Konfliktverwerfen, Maus/Touch, Unteraufgaben-Transfers und Sortierung. Der responsive Unteraufgaben-Test scrollt seinen Anker nach Größenwechsel ausdrücklich ins Sichtfeld, damit er keine Pointerkoordinaten außerhalb des Viewports verwendet oder unbeabsichtigt Randscrollen auslöst. Vor seinem Offline-Teil wartet er ausdrücklich auf die Bestätigung der vorbereitenden Schreibaktionen.
+
+## Sichtprüfung und Grenzen
+
+Die sechs Aufnahmen `test-results/task-drag-{light,dark}-{1360,360,320}.png` wurden tatsächlich geöffnet und visuell betrachtet. Heller und dunkler Rahmen, Titelvorschau, Umbruch bei 320 Pixeln und zugängliche Zielbeschriftung waren lesbar; keine horizontale Überbreite. Eine erste Sichtprüfung deckte einen überdeckten Zieltitel auf; die Darstellung wurde korrigiert. Browser-Touch erfolgt per Chromium-CDP, keine Prüfung an physischer Android-/iOS-Hardware. Kein produktiver Zwei-Konten-Test; der Abgleich verwendet isolierte Testkonten. Serverseitige Antwortverlust- und Konkurrenzfälle sind deterministische Domain-/Offline-Tests, keine Behauptung eines manuell provozierten Netzwerkausfalls.
+
+Die manuellen Listenzeilen reservieren mindestens 80 Pixel für den Ablagebereich, auch wenn dessen Inhalt außerhalb eines Drag-Vorgangs unsichtbar ist. Dadurch springen Sortierziele beim Drag-Start nicht; die Zeilenhöhe fällt entsprechend größer aus.

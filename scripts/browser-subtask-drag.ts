@@ -18,9 +18,15 @@ export async function subtaskDragChecks(
     await page.getByLabel("Neue Unteraufgabe", { exact: true }).fill(title);
     await page.getByLabel("Neue Unteraufgabe", { exact: true }).press("Enter");
   }
+  await expect(page.locator("button.sync")).toHaveText("Synchronisiert", {
+    timeout: 30000,
+  });
   await page
     .getByRole("button", { name: "Versteckt erledigt erledigen", exact: true })
     .click();
+  await expect(page.locator("button.sync")).toHaveText("Synchronisiert", {
+    timeout: 30000,
+  });
   await page.getByRole("button", { name: "Schließen", exact: true }).click();
   const drag = async (destination: ReturnType<typeof target>, offset = 0.5) => {
     const handle = source().locator(".subtask-row .sort-handle").first();
@@ -122,6 +128,9 @@ export async function subtaskDragChecks(
   await restore();
   await cdp.detach();
   // Precise placement with a hidden completed sibling and persisted offline queue.
+  await expect(page.locator("button.sync")).toHaveText("Synchronisiert", {
+    timeout: 30000,
+  });
   await context.setOffline(true);
   const anchor = target()
     .locator(".subtask-row")
@@ -134,6 +143,7 @@ export async function subtaskDragChecks(
     }, theme);
     for (const width of [1360, 360, 320]) {
       await page.setViewportSize({ width, height: 900 });
+      await anchor.evaluate((el) => el.scrollIntoView({ block: "center" }));
       const b = (await anchor.boundingBox())!;
       await page.mouse.move(b.x + b.width / 2, b.y + 4);
       await expect(anchor).toHaveClass(/insert-before/);

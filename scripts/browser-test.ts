@@ -1,3 +1,4 @@
+import { taskDragConversionChecks } from "./browser-task-drag-conversion";
 import { subtaskDragChecks } from "./browser-subtask-drag";
 import { taskConversionChecks } from "./browser-task-conversion";
 import { subtaskMoveChecks } from "./browser-subtask-move";
@@ -184,6 +185,7 @@ try {
   await subtaskMoveChecks(page, a, sandra);
   await subtaskDragChecks(page, a, sandra);
   await taskConversionChecks(page, a, sandra);
+  await taskDragConversionChecks(page, sandra);
   expect(errors).toEqual([]);
   console.log(
     "Browserchecks bestanden: private/geteilte Listen, zwei Browserkonten, Reload, Offline-Reload, Abgleich, 320/360/Desktop ohne Überbreite. Screenshots in test-results/. Sichtprüfung und echte Android-Abnahme separat.",

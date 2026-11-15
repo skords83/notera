@@ -20,6 +20,7 @@ export function TaskActions({
     id: string;
     scope: string;
     onMove: Move;
+    onConvert?: (target: string) => void;
     onTransfer?: (
       target: string,
       anchor?: string,
