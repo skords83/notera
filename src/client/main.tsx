@@ -770,7 +770,34 @@ function App() {
                             onConvert={() => setConverting(t)}
                             grip={
                               manualOrder
-                                ? { id: t.id, scope: orderScope, onMove: move }
+                                ? {
+                                    id: t.id,
+                                    scope: orderScope,
+                                    onMove: move,
+                                    onConvert: (targetId: string) =>
+                                      void act(async () => {
+                                        const target = store
+                                          .projected()
+                                          .tasks.find(
+                                            (task) =>
+                                              task.id === targetId &&
+                                              !task.deleted,
+                                          );
+                                        if (
+                                          !target ||
+                                          target.listId !== t.listId
+                                        )
+                                          return;
+                                        await store.enqueue(
+                                          "taskConvert",
+                                          t.id,
+                                          {
+                                            targetId,
+                                            targetVersion: target.version,
+                                          },
+                                        );
+                                      }),
+                                  }
                                 : undefined
                             }
                             ordering={
@@ -807,6 +834,14 @@ function App() {
                           />
                         )}
                       </div>
+                      {manualOrder && !t.deleted && (
+                        <div
+                          className="conversion-zone"
+                          data-conversion-target={t.id}
+                        >
+                          Als Unteraufgabe ablegen
+                        </div>
+                      )}
                       {(children.length > 0 || expanded) && (
                         <div id={regionId} hidden={!expanded}>
                           <Subtasks

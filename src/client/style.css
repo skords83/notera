@@ -1100,3 +1100,45 @@ dialog .completed-subtasks-toggle {
   padding: 4px 12px;
   pointer-events: none;
 }
+
+/* Separate inset conversion destinations from the horizontal sorting marker. */
+.conversion-zone {
+  visibility: hidden;
+  min-height: 80px;
+  box-sizing: border-box;
+  margin: 0 52px;
+  padding: 6px;
+  background: var(--bg);
+  border: 2px dashed var(--line);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.conversion-drag-active
+  .task-item:not(.order-dragging):not(.order-ghost)
+  > .conversion-zone {
+  visibility: visible;
+}
+.conversion-zone.conversion-hover {
+  border-color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, var(--bg));
+  outline: 2px solid var(--blue);
+}
+.conversion-zone.conversion-blocked {
+  border-style: solid;
+  border-color: var(--text);
+}
+.conversion-preview {
+  pointer-events: none;
+  margin: 4px 0 0 16px;
+  padding: 8px;
+  border-left: 3px solid var(--blue);
+}
+.conversion-ghost {
+  transform: translateX(24px);
+  max-width: calc(100vw - 64px);
+}
+
+.conversion-ghost {
+  visibility: hidden;
+}

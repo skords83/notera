@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { DotsThreeIcon } from "@phosphor-icons/react";
 import { relocate } from "../shared/order";
 import * as store from "./store";
+import { conversionBlockers } from "../shared/conversion";
 export type Move = (anchor: string, side: "before" | "after") => void;
 export function moveAction(
   kind: "task" | "subtask",
@@ -55,6 +56,7 @@ export function SortHandle({
   expanded,
   controls,
   onTransfer,
+  onConvert,
 }: {
   id: string;
   title: string;
@@ -65,6 +67,7 @@ export function SortHandle({
   buttonRef: RefObject<HTMLButtonElement | null>;
   expanded: boolean;
   controls: string;
+  onConvert?: (target: string) => void;
   onTransfer?: (
     target: string,
     anchor?: string,
@@ -117,6 +120,9 @@ export function SortHandle({
           ? store.projected().tasks.find((t) => t.id === scope && !t.deleted)
               ?.listId
           : undefined;
+        let conversionTarget: HTMLElement | null = null;
+        let conversionAllowed = false;
+        let conversionHint: HTMLElement | null = null;
         let transferTarget: HTMLElement | null = null;
         let appendPreview: HTMLElement | null = null;
         let hoverId: string | null = null;
@@ -126,6 +132,15 @@ export function SortHandle({
             new CustomEvent("notera-drag-expand", { detail: id }),
           );
         const clearTarget = () => {
+          conversionTarget?.classList.remove(
+            "conversion-hover",
+            "conversion-blocked",
+          );
+          conversionTarget = null;
+          conversionHint?.remove();
+          conversionHint = null;
+          conversionAllowed = false;
+          ghost?.classList.remove("conversion-ghost");
           transferTarget?.classList.remove("transfer-hover");
           appendPreview?.remove();
           appendPreview = null;
@@ -135,6 +150,54 @@ export function SortHandle({
         };
         const locate = () => {
           clearTarget();
+          if (onConvert) {
+            const hit = document
+              .elementFromPoint(x, y)
+              ?.closest<HTMLElement>("[data-conversion-target]");
+            const snapshot = store.projected();
+            const source = snapshot.tasks.find(
+              (t) => t.id === id && !t.deleted,
+            );
+            const destination = snapshot.tasks.find(
+              (t) => t.id === hit?.dataset.conversionTarget && !t.deleted,
+            );
+            if (
+              hit &&
+              source &&
+              destination &&
+              source.id !== destination.id &&
+              source.listId === destination.listId
+            ) {
+              conversionTarget = hit;
+              const blockers = conversionBlockers(source, snapshot);
+              conversionAllowed = blockers.length === 0;
+              hit.classList.add(
+                conversionAllowed ? "conversion-hover" : "conversion-blocked",
+              );
+              conversionHint = document.createElement("div");
+              conversionHint.className = "conversion-preview";
+              conversionHint.textContent = conversionAllowed
+                ? `↳ ${source.title} · Am Ende`
+                : `Gesperrt: ${blockers.join(", ")}`;
+              hit.appendChild(conversionHint);
+              ghost?.classList.add("conversion-ghost");
+              if (hoverId !== destination.id) {
+                clearTimeout(hoverTimer);
+                expand(null);
+                hoverId = destination.id;
+                hoverTimer = window.setTimeout(
+                  () => expand(destination.id),
+                  550,
+                );
+              }
+              return;
+            }
+            if (hoverId) {
+              clearTimeout(hoverTimer);
+              hoverId = null;
+              expand(null);
+            }
+          }
           if (onTransfer) {
             const hit = document
               .elementFromPoint(x, y)
@@ -240,7 +303,7 @@ export function SortHandle({
               else window.scrollBy(0, delta);
             }
             // Keep the preview aligned when a dwelling target expands or rerenders.
-            if (delta || onTransfer) locate();
+            if (delta || onTransfer || onConvert) locate();
           }
           frame = requestAnimationFrame(scroll);
         };
@@ -253,6 +316,8 @@ export function SortHandle({
             dragging = true;
             suppressClick.current = true;
             row.classList.add("order-dragging");
+            if (onConvert)
+              document.body.classList.add("conversion-drag-active");
             ghost = row.cloneNode(true) as HTMLElement;
             ghost.removeAttribute("id");
             ghost
@@ -292,10 +357,14 @@ export function SortHandle({
         const finish = (commit: boolean) => {
           const anchor = target?.dataset.orderId;
           const destination = transferTarget?.dataset.transferTarget;
+          const conversion = conversionAllowed
+            ? conversionTarget?.dataset.conversionTarget
+            : undefined;
           const placementSide = side;
           cleanup.current();
           button.focus({ preventScroll: true });
-          if (commit && dragging && destination)
+          if (commit && dragging && conversion) onConvert?.(conversion);
+          else if (commit && dragging && destination)
             onTransfer?.(destination, anchor, placementSide);
           else if (commit && dragging && anchor) onMove(anchor, placementSide);
         };
@@ -325,6 +394,7 @@ export function SortHandle({
           clearTarget();
           ghost?.remove();
           row.classList.remove("order-dragging");
+          document.body.classList.remove("conversion-drag-active");
           window.removeEventListener("pointermove", move);
           window.removeEventListener("pointerup", up);
           window.removeEventListener("pointercancel", cancel);
