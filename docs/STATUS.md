@@ -1,3 +1,13 @@
+# Aktueller Prüfstand – 15. November 2026
+
+Basis `origin/main` bei `aa0c3fe` einschließlich PR #10, eigener Branch `feat/task-subtask-improvements`, sauberer Ausgangsstand, keine `AGENTS.md`. Erledigte Unteraufgaben lassen sich gemeinsam mit der Übersicht und direkt im Detail filtern. Hauptaufgaben ohne nicht übertragbare Inhalte/eigene Kindhistorie können atomar als Unteraufgabe derselben Liste verschoben werden. Identität, Offline-Reload, Antwortverlust und alte Folgeaktionen sind abgesichert. Additives Schema 005 und Backupformat `notera-4`; Migrationen 001–004 unverändert.
+
+Ein bestehender Ausführungsfehler beim Einzelverschieben wurde auf dem Ausgangsstand **nicht reproduziert**; der genaue Bedienweg und seine Bedingungen sind dokumentiert. Der ständig sichtbare Aktionsbutton ist jetzt als **…** deutlicher erkennbar. Details, Prüfungen und Grenzen: [Prüfbericht Haupt-/Unteraufgaben](TASK-CONVERSION-CHECKS.md).
+
+25 Tests, Produktionsbuild, vollständige Chromium-Prüfung einschließlich neuer Fälle und eigenständiges PostgreSQL 17 unter Podman mit zwei Verbindungen, Konkurrenz und Backup/Restore bestanden. Desktop/360/320 in Hell/Dunkel tatsächlich bedient und Screenshots angesehen. Physische Android-/Screenreader-Abnahme bleibt offen. Kein automatischer Merge oder produktiver Rollout. Frühere datierte Abschnitte sind Entwicklungsverlauf.
+
+---
+
 # Aktueller Prüfstand – 14. November 2026
 
 Unteraufgaben lassen sich in Übersicht und Detailpanel innerhalb derselben Liste zu einer anderen Hauptaufgabe verschieben. Atomare Rechte-/Strukturprüfung, Offline-Reload, Idempotenz und Schutz vor veralteten Undo-/Sortieraktionen sind umgesetzt. Basis `origin/main` bei `6379355`, Branch `feat/move-subtasks`; ursprünglicher Entwicklungsauftrag unverändert. Details und Grenzen stehen im [Prüfbericht](SUBTASK-MOVE-CHECKS.md).
