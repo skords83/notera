@@ -165,11 +165,13 @@ export async function orderChecks(
     .poll(() => children.locator(".subtask-title").allTextContents())
     .toEqual([childNames[1], childNames[0], childNames[2]]);
   // Same child order after completion; open/done parent boundaries are independent.
+  await page.getByLabel("Erledigte zeigen", { exact: true }).check();
   await children.first().locator(".check-hit").click();
   await synced();
   await expect
     .poll(() => children.locator(".subtask-title").allTextContents())
     .toEqual([childNames[1], childNames[0], childNames[2]]);
+  await page.getByLabel("Erledigte zeigen", { exact: true }).uncheck();
   await item(b).locator(".task-row > .check-hit").click();
   await synced();
   await menu(a);

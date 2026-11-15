@@ -11,6 +11,7 @@ import {
   listName,
   subtaskPatch,
   subtaskMovePatch,
+  taskConvertPatch,
   completionPatch,
 } from "../shared/model";
 import type {
@@ -181,6 +182,57 @@ export function projected(local: Local = state): Snapshot {
   result.subtasks ||= [];
   for (const m of local.queue) {
     if (m.status === 403 && !(m.entity === "list" && m.version === 0)) continue;
+    if (
+      result.convertedTasks?.some((t) => t.id === m.id) &&
+      (m.entity === "task" ||
+        m.entity === "preference" ||
+        m.entity === "completion" ||
+        (m.entity === "order" && m.patch.kind === "task"))
+    )
+      continue;
+    if (m.entity === "taskConvert") {
+      if (m.error || result.conversionReceipts?.includes(m.key)) continue;
+      const source = result.tasks.find((t) => t.id === m.id && !t.deleted);
+      const target = result.tasks.find(
+        (t) => t.id === m.patch.targetId && !t.deleted,
+      );
+      if (
+        !source ||
+        !target ||
+        source.id === target.id ||
+        source.listId !== target.listId ||
+        result.subtasks.some((c) => c.taskId === source.id)
+      )
+        continue;
+      result.subtasks.push({
+        id: source.id,
+        taskId: target.id,
+        title: source.title,
+        done: source.done,
+        completedAt: source.completedAt,
+        createdBy: source.createdBy,
+        deleted: false,
+        version: source.version + 1,
+        orderVersion: 1,
+        createdAt: source.updatedAt,
+        position:
+          Math.max(
+            0,
+            ...result.subtasks
+              .filter((c) => c.taskId === target.id)
+              .map((c) => c.position || 0),
+          ) + 1,
+      });
+      result.convertedTasks ||= [];
+      result.convertedTasks.push({ id: source.id, listId: source.listId });
+      result.tasks = result.tasks.filter((t) => t.id !== source.id);
+      delete result.preferences[source.id];
+      if (!source.done) {
+        target.done = false;
+        target.completedAt = null;
+      }
+      continue;
+    }
     if (m.entity === "order") {
       if (result.orderReceipts?.includes(m.key)) continue;
       const p = orderPatch.parse(m.patch);
@@ -223,6 +275,12 @@ export function projected(local: Local = state): Snapshot {
       continue;
     }
     if (m.entity === "subtask") {
+      if (
+        m.error ||
+        (m.base?.conversionKey &&
+          !result.convertedTasks?.some((t) => t.id === m.id))
+      )
+        continue;
       let child = result.subtasks.find((c) => c.id === m.id);
       const isNew = !child;
       if (!child) {
@@ -378,14 +436,17 @@ export async function enqueue(
   if (
     entity === "subtask" ||
     entity === "completion" ||
-    entity === "subtaskMove"
+    entity === "subtaskMove" ||
+    entity === "taskConvert"
   ) {
     const parsed = (
       entity === "subtask"
         ? subtaskPatch
-        : entity === "subtaskMove"
-          ? subtaskMovePatch
-          : completionPatch
+        : entity === "taskConvert"
+          ? taskConvertPatch
+          : entity === "subtaskMove"
+            ? subtaskMovePatch
+            : completionPatch
     ).safeParse(patch);
     if (!parsed.success) throw new Error(parsed.error.issues[0].message);
     patch = parsed.data;
@@ -400,7 +461,7 @@ export async function enqueue(
   }
   const v =
     version ??
-    (entity === "task" || entity === "completion"
+    (entity === "task" || entity === "completion" || entity === "taskConvert"
       ? snap.tasks.find((t) => t.id === id)?.version
       : entity === "subtask" || entity === "subtaskMove"
         ? snap.subtasks?.find((c) => c.id === id)?.version
@@ -415,7 +476,7 @@ export async function enqueue(
         "Konto wurde in einem anderen Tab gewechselt. Bitte neu laden.",
       );
     const object =
-      entity === "task" || entity === "completion"
+      entity === "task" || entity === "completion" || entity === "taskConvert"
         ? snap.tasks.find((t) => t.id === id)
         : entity === "subtask" || entity === "subtaskMove"
           ? snap.subtasks?.find((c) => c.id === id)
@@ -431,7 +492,15 @@ export async function enqueue(
       device: s.device,
       base: {
         ...(object || {}),
-        ...(entity === "subtaskMove"
+        ...(entity === "subtask" &&
+        s.queue.some((q) => q.entity === "taskConvert" && q.id === id)
+          ? {
+              conversionKey: s.queue.find(
+                (q) => q.entity === "taskConvert" && q.id === id,
+              )!.key,
+            }
+          : {}),
+        ...(entity === "subtaskMove" || entity === "taskConvert"
           ? { target: snap.tasks.find((t) => t.id === patch.targetId) }
           : {}),
         ...(entity === "completion"
@@ -553,9 +622,14 @@ async function pull() {
         .map((m) => m.id),
     );
     const oldTasks = new Map(s.snapshot.tasks.map((t) => [t.id, t]));
+    for (const marker of s.snapshot.convertedTasks || [])
+      oldTasks.set(marker.id, marker as Task);
     // Include local task ancestry so dependent edits/preferences are pruned on real revocation.
     for (const m of s.queue) {
-      if (m.entity === "task" && !oldTasks.has(m.id)) {
+      if (
+        (m.entity === "task" || m.entity === "taskConvert") &&
+        !oldTasks.has(m.id)
+      ) {
         const listId = m.base?.listId || m.patch.listId;
         if (typeof listId === "string") oldTasks.set(m.id, { listId } as Task);
       }
@@ -709,6 +783,39 @@ export async function sync() {
             )
         )
           continue;
+        const preceding = state.queue.slice(0, state.queue.indexOf(m));
+        // A conversion is structural. Preserve causality across entity types and reloads.
+        if (
+          preceding.some(
+            (q) =>
+              q.entity === "taskConvert" &&
+              (q.id === m.id ||
+                q.patch.targetId === m.id ||
+                q.id === parentId ||
+                q.patch.targetId === parentId ||
+                (m.entity === "order" &&
+                  (q.id === m.patch.anchorId ||
+                    q.patch.targetId === m.patch.anchorId))),
+          )
+        )
+          continue;
+        if (
+          m.entity === "taskConvert" &&
+          preceding.some(
+            (q) =>
+              q.id === m.id ||
+              q.id === m.patch.targetId ||
+              q.base?.taskId === m.id ||
+              q.patch.taskId === m.id ||
+              (q.entity === "subtaskMove" &&
+                (q.patch.sourceId === m.id ||
+                  q.patch.targetId === m.id ||
+                  q.patch.targetId === m.patch.targetId)) ||
+              (q.entity === "order" &&
+                (q.patch.scopeId === m.id || q.id === m.patch.targetId)),
+          )
+        )
+          continue;
         const pendingList = state.queue.find(
           (q) =>
             q.entity === "list" &&
@@ -746,6 +853,14 @@ export async function sync() {
                 id: m.id,
               },
             ];
+            if (m.entity === "taskConvert") {
+              affected.push(
+                { entity: "subtask", id: m.id },
+                { entity: "task", id: String(m.patch.targetId) },
+              );
+              s.noticeKind = "success";
+              s.notice = "Aufgabe wurde als Unteraufgabe verschoben.";
+            }
             if (m.entity === "subtaskMove") {
               affected.push(
                 { entity: "task", id: String(m.patch.sourceId) },
@@ -764,6 +879,46 @@ export async function sync() {
                       (c: any) => c.id,
                     );
               for (const id of ids) affected.push({ entity: "subtask", id });
+            }
+            for (const q of s.queue.filter(
+              (q) => q.entity === "taskConvert" && !q.error,
+            )) {
+              const sameContent = (base: any, current: Task) =>
+                base &&
+                [
+                  "title",
+                  "notes",
+                  "links",
+                  "due",
+                  "assignee",
+                  "done",
+                  "deleted",
+                  "listId",
+                ].every(
+                  (k) =>
+                    JSON.stringify(base[k]) ===
+                    JSON.stringify((current as any)[k]),
+                );
+              const source = acknowledged.tasks.find((t) => t.id === q.id);
+              const target = acknowledged.tasks.find(
+                (t) => t.id === q.patch.targetId,
+              );
+              if (
+                source &&
+                m.entity === "task" &&
+                m.id === q.id &&
+                source.version === result.version &&
+                source.version === q.version + 1 &&
+                sameContent(q.base, source)
+              )
+                q.version = source.version;
+              if (
+                target &&
+                target.version === result.parentVersions?.[target.id] &&
+                target.version === Number(q.patch.targetVersion) + 1 &&
+                sameContent(q.base?.target, target)
+              )
+                q.patch.targetVersion = target.version;
             }
             // Rebase only causally acknowledged local dependencies. Never rebase on a pull.
             for (const q of s.queue.filter(
@@ -1018,7 +1173,11 @@ export async function correctNewList(
 export async function resolveConflict(key: string, restore = false) {
   const m = state.queue.find((q) => q.key === key);
   if (!m) return;
-  if (m.entity === "order" || m.entity === "subtaskMove")
+  if (
+    m.entity === "order" ||
+    m.entity === "subtaskMove" ||
+    m.entity === "taskConvert"
+  )
     throw new Error("Bitte die Aktion verwerfen und das Ziel erneut wählen.");
   const snapshot = state.snapshot;
   let version =

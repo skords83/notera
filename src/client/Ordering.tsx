@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { DotsSixVerticalIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon } from "@phosphor-icons/react";
 import { relocate } from "../shared/order";
 import * as store from "./store";
 export type Move = (anchor: string, side: "before" | "after") => void;
@@ -77,7 +77,7 @@ export function SortHandle({
       aria-expanded={expanded}
       aria-controls={controls}
       aria-label={`Aktionen für „${title}“`}
-      aria-description="Ziehen zum Sortieren oder aktivieren für Nach oben und Nach unten."
+      aria-description="Aktivieren für Aktionen, etwa Verschieben und Sortieren. Ziehen zum Sortieren."
       title="Ziehen zum Sortieren · Tippen für Aktionen"
       onClick={(e) => {
         e.preventDefault();
@@ -241,7 +241,7 @@ export function SortHandle({
         frame = requestAnimationFrame(scroll);
       }}
     >
-      <DotsSixVerticalIcon aria-hidden="true" />
+      <DotsThreeIcon aria-hidden="true" />
     </button>
   );
 }

@@ -1,3 +1,4 @@
+import { conversionBlockers } from "../shared/conversion";
 import { ordered } from "../shared/order";
 import { moveAction, OrderAnnouncement, type Move } from "./Ordering";
 import { TaskActions } from "./TaskActions";
@@ -15,6 +16,8 @@ function SubtaskRow({
   siblings,
   move,
   onTransfer,
+  hideCompleted,
+  onHidden,
 }: {
   child: Subtask;
   disabled: boolean;
@@ -24,6 +27,8 @@ function SubtaskRow({
   siblings: Subtask[];
   move: Move;
   onTransfer: () => void;
+  hideCompleted: boolean;
+  onHidden: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(child.title);
@@ -61,7 +66,10 @@ function SubtaskRow({
         disabled={disabled}
         aria-label={`${child.title} ${child.done ? "wieder öffnen" : "erledigen"}`}
         aria-pressed={child.done}
-        onClick={() => void change({ done: !child.done })}
+        onClick={() => {
+          if (!child.done && hideCompleted) onHidden();
+          void change({ done: !child.done });
+        }}
       >
         <span className="check-circle">
           {child.done && <CheckIcon weight="bold" />}
@@ -147,8 +155,12 @@ export function Subtasks({
   addRequest = 0,
   onAddStarted,
   onCancelEmpty,
+  showDone,
+  onShowDone,
 }: {
   task: Task;
+  showDone: boolean;
+  onShowDone: (value: boolean) => void;
   inline?: boolean;
   addRequest?: number;
   onAddStarted?: () => void;
@@ -159,6 +171,7 @@ export function Subtasks({
       (c) => c.taskId === task.id && !c.deleted,
     ),
   );
+  const section = useRef<HTMLElement>(null);
   const id = useId();
   const [transfer, setTransfer] = useState<Subtask | null>(null);
   const [adding, setAdding] = useState(!inline);
@@ -201,6 +214,8 @@ export function Subtasks({
   }
   return (
     <section
+      ref={section}
+      tabIndex={-1}
       className={inline ? "subtasks inline-subtasks" : "subtasks"}
       aria-label={inline ? `Unteraufgaben von ${task.title}` : undefined}
       aria-labelledby={inline ? undefined : `${id}-heading`}
@@ -241,20 +256,52 @@ export function Subtasks({
           )}
         </>
       )}
+      {!inline && (
+        <label className="inline completed-subtasks-toggle">
+          <input
+            type="checkbox"
+            checked={showDone}
+            onChange={(e) => onShowDone(e.target.checked)}
+          />{" "}
+          Erledigte Unteraufgaben zeigen
+        </label>
+      )}
       <ul>
-        {children.map((child) => (
-          <SubtaskRow
-            key={child.id}
-            child={child}
-            siblings={children}
-            onTransfer={() => setTransfer(child)}
-            move={moveAction("subtask", child.id, children, setError)}
-            compact={inline}
-            disabled={task.deleted}
-            report={setError}
-            onRemoved={() => input.current?.focus()}
-          />
-        ))}
+        {children
+          .filter((c) => showDone || !c.done)
+          .map((child) => (
+            <SubtaskRow
+              key={child.id}
+              child={child}
+              hideCompleted={!showDone}
+              siblings={children}
+              onTransfer={() => setTransfer(child)}
+              move={moveAction("subtask", child.id, children, setError)}
+              compact={inline}
+              disabled={task.deleted}
+              report={setError}
+              onRemoved={() =>
+                (input.current || addButton.current || section.current)?.focus()
+              }
+              onHidden={() => {
+                const rows = [
+                  ...(section.current?.querySelectorAll<HTMLButtonElement>(
+                    ".subtask-row .check-hit",
+                  ) || []),
+                ];
+                const index = rows.findIndex(
+                  (b) => b.closest("li")?.dataset.orderId === child.id,
+                );
+                (
+                  rows[index + 1] ||
+                  rows[index - 1] ||
+                  input.current ||
+                  addButton.current ||
+                  section.current
+                )?.focus();
+              }}
+            />
+          ))}
       </ul>
       {adding ? (
         <form onSubmit={add} className="subtask-add">
@@ -315,12 +362,14 @@ export function Subtasks({
   );
 }
 
-function TransferDialog({
+export function TransferDialog({
   child,
   onClose,
+  conversion = false,
 }: {
-  child: Subtask;
+  child: Subtask | Task;
   onClose: () => void;
+  conversion?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
@@ -329,11 +378,14 @@ function TransferDialog({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const snapshot = store.projected();
-  const source = snapshot.tasks.find((t) => t.id === child.taskId);
+  const sourceId = "taskId" in child ? child.taskId : child.id;
+  const source = snapshot.tasks.find((t) => t.id === sourceId);
+  const blockers =
+    conversion && source ? conversionBlockers(source, snapshot) : [];
   const targets = snapshot.tasks.filter(
     (t) =>
       !t.deleted &&
-      t.id !== child.taskId &&
+      t.id !== sourceId &&
       t.listId === source?.listId &&
       t.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
   );
@@ -343,18 +395,31 @@ function TransferDialog({
   function close() {
     ref.current?.close();
     onClose();
+    requestAnimationFrame(() => {
+      const retained = store.projected().tasks.some((t) => t.id === sourceId);
+      const focusId = retained ? sourceId : selected;
+      (
+        document.getElementById(`task-actions-${focusId}-detail`) ||
+        document.getElementById(`task-actions-${focusId}`) ||
+        document.querySelector<HTMLElement>('[aria-label="Neue Aufgabe"]')
+      )?.focus();
+    });
   }
   async function submit(e: FormEvent) {
     e.preventDefault();
     const target = targets.find((t) => t.id === selected);
-    if (!target || busy) return;
+    if (!target || busy || blockers.length) return;
     setBusy(true);
     try {
-      await store.enqueue("subtaskMove", child.id, {
-        sourceId: child.taskId,
-        targetId: target.id,
-        targetVersion: target.version,
-      });
+      await store.enqueue(
+        conversion ? "taskConvert" : "subtaskMove",
+        child.id,
+        {
+          ...(!conversion ? { sourceId } : {}),
+          targetId: target.id,
+          targetVersion: target.version,
+        },
+      );
       close();
     } catch (e) {
       setError((e as Error).message);
@@ -372,11 +437,27 @@ function TransferDialog({
         close();
       }}
     >
-      <h2 id={`${id}-title`}>Zu anderer Aufgabe verschieben</h2>
+      <h2 id={`${id}-title`}>
+        {conversion
+          ? "Als Unteraufgabe verschieben"
+          : "Zu anderer Aufgabe verschieben"}
+      </h2>
       <p>
         „{child.title}“ wird am Ende der gewählten Aufgabe angehängt. Die
         Änderung wird beim nächsten Abgleich gespeichert.
       </p>
+      {conversion && (
+        <p>
+          Nur Titel und Erledigungsstatus können übertragen werden. Persönliche
+          Daten aller Listenmitglieder werden beim Abgleich zusätzlich geprüft.
+        </p>
+      )}
+      {blockers.length > 0 && (
+        <p role="alert">
+          Umwandlung nicht möglich: {blockers.join(", ")}. Bitte zuerst bewusst
+          entfernen; Verlauf kann derzeit nicht übertragen werden.
+        </p>
+      )}
       <form onSubmit={submit}>
         <label>
           Aufgabe suchen
@@ -407,7 +488,11 @@ function TransferDialog({
         <div className="actions">
           <button
             type="submit"
-            disabled={busy || !targets.some((t) => t.id === selected)}
+            disabled={
+              busy ||
+              blockers.length > 0 ||
+              !targets.some((t) => t.id === selected)
+            }
           >
             Verschieben
           </button>

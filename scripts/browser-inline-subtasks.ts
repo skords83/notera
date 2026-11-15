@@ -22,6 +22,7 @@ export async function inlineSubtaskChecks(
     expect(page.locator("button.sync")).toHaveText("Synchronisiert", {
       timeout: 30000,
     });
+  await page.getByLabel("Erledigte zeigen", { exact: true }).check();
   await addTask(page, title);
   await expect(toggle).toHaveCount(0);
   await expect(children).toHaveCount(0);

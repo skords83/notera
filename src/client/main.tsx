@@ -51,7 +51,7 @@ import {
   formatCalendarDate,
   taskCount,
 } from "../shared/presentation";
-import { Subtasks, subtaskProgress } from "./Subtasks";
+import { Subtasks, TransferDialog, subtaskProgress } from "./Subtasks";
 import { TaskActions } from "./TaskActions";
 import { UndoToast } from "./UndoToast";
 import "./style.css";
@@ -186,6 +186,7 @@ function App() {
     });
   }
   const [showDone, setShowDone] = useState(false);
+  const [converting, setConverting] = useState<Task | null>(null);
   const [modal, setModal] = useState<
     "list" | "settings" | "conflicts" | "login" | null
   >(null);
@@ -551,16 +552,16 @@ function App() {
           )}
           <div className="section-title">
             <span>{taskCount(tasks.length, view)}</span>
-            {!["Erledigt", "Papierkorb"].includes(view) && (
-              <label className="inline">
-                <input
-                  type="checkbox"
-                  checked={showDone}
-                  onChange={(e) => setShowDone(e.target.checked)}
-                />
-                Erledigte zeigen
-              </label>
-            )}
+            <label className="inline">
+              <input
+                type="checkbox"
+                checked={showDone}
+                onChange={(e) => setShowDone(e.target.checked)}
+              />
+              {["Erledigt", "Papierkorb"].includes(view)
+                ? "Erledigte Unteraufgaben zeigen"
+                : "Erledigte zeigen"}
+            </label>
           </div>
           <OrderAnnouncement />
           {sections.map((section) => {
@@ -756,6 +757,7 @@ function App() {
                           <TaskActions
                             title={t.title}
                             id={t.id}
+                            onConvert={() => setConverting(t)}
                             grip={
                               manualOrder
                                 ? { id: t.id, scope: orderScope, onMove: move }
@@ -799,6 +801,8 @@ function App() {
                         <div id={regionId} hidden={!expanded}>
                           <Subtasks
                             task={t}
+                            showDone={showDone}
+                            onShowDone={setShowDone}
                             inline
                             addRequest={addRequests[t.id]}
                             onAddStarted={() =>
@@ -910,10 +914,19 @@ function App() {
           }
         />
       )}
+      {converting && (
+        <TransferDialog
+          child={converting}
+          conversion
+          onClose={() => setConverting(null)}
+        />
+      )}
       {chosen && (
         <Details
           key={chosen.id}
           task={chosen}
+          showDone={showDone}
+          onShowDone={setShowDone}
           onClose={() => {
             setSelected(null);
             setSelectedSnapshot(null);
@@ -980,6 +993,12 @@ function App() {
               <div className="conflict" key={q.key}>
                 <strong>{q.error}</strong>
                 <h3>Deine Änderung</h3>
+                {q.entity === "taskConvert" && (
+                  <p>
+                    „{String(q.base?.title || "Aufgabe")}“ als Unteraufgabe
+                    verschieben
+                  </p>
+                )}
                 {q.entity === "order" ? (
                   <OrderConflictValues pending={q} />
                 ) : (
@@ -1041,7 +1060,8 @@ function App() {
                       Klärung blockiert.
                     </p>
                   ) : q.entity === "completion" ||
-                    q.entity === "subtaskMove" ? (
+                    q.entity === "subtaskMove" ||
+                    q.entity === "taskConvert" ? (
                     <p>
                       Serverfassung behalten und die Aktion anschließend an der
                       Hauptaufgabe erneut bestätigen. Bei einem
@@ -1360,7 +1380,18 @@ function ListForm({ list, onClose }: { list?: TaskList; onClose: () => void }) {
     </Modal>
   );
 }
-function Details({ task: t, onClose }: { task: Task; onClose: () => void }) {
+function Details({
+  task: t,
+  onClose,
+  showDone,
+  onShowDone,
+}: {
+  task: Task;
+  onClose: () => void;
+  showDone: boolean;
+  onShowDone: (value: boolean) => void;
+}) {
+  const [converting, setConverting] = useState(false);
   const data = store.projected();
   const user = store.getState().user!;
   const pref = data.preferences[t.id];
@@ -1426,6 +1457,32 @@ function Details({ task: t, onClose }: { task: Task; onClose: () => void }) {
   }
   return (
     <Modal title="Aufgabe" panel onClose={close}>
+      {!t.deleted && (
+        <TaskActions
+          title={t.title}
+          id={`${t.id}-detail`}
+          onConvert={() => {
+            if (dirty) {
+              setError(
+                "Bitte Änderungen zuerst speichern, bevor du die Aufgabe umwandelst.",
+              );
+              return;
+            }
+            setConverting(true);
+          }}
+        />
+      )}
+      {converting && (
+        <TransferDialog
+          child={t}
+          conversion
+          onClose={() => {
+            setConverting(false);
+            if (!store.projected().tasks.some((row) => row.id === t.id))
+              onClose();
+          }}
+        />
+      )}
       <label>
         Titel
         <textarea
@@ -1441,7 +1498,7 @@ function Details({ task: t, onClose }: { task: Task; onClose: () => void }) {
           }}
         />
       </label>
-      <Subtasks task={t} />
+      <Subtasks task={t} showDone={showDone} onShowDone={onShowDone} />
       <form
         id="task-details-form"
         onSubmit={save}
