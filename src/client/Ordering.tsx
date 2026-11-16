@@ -131,7 +131,7 @@ export function SortHandle({
           window.dispatchEvent(
             new CustomEvent("notera-drag-expand", { detail: id }),
           );
-        const clearTarget = () => {
+        const clearConversion = () => {
           conversionTarget?.classList.remove(
             "conversion-hover",
             "conversion-blocked",
@@ -141,6 +141,8 @@ export function SortHandle({
           conversionHint = null;
           conversionAllowed = false;
           ghost?.classList.remove("conversion-ghost");
+        };
+        const clearTarget = () => {
           transferTarget?.classList.remove("transfer-hover");
           appendPreview?.remove();
           appendPreview = null;
@@ -168,18 +170,37 @@ export function SortHandle({
               source.id !== destination.id &&
               source.listId === destination.listId
             ) {
+              if (conversionTarget !== hit) clearConversion();
               conversionTarget = hit;
               const blockers = conversionBlockers(source, snapshot);
               conversionAllowed = blockers.length === 0;
-              hit.classList.add(
-                conversionAllowed ? "conversion-hover" : "conversion-blocked",
-              );
-              conversionHint = document.createElement("div");
-              conversionHint.className = "conversion-preview";
-              conversionHint.textContent = conversionAllowed
-                ? `↳ ${source.title} · Am Ende`
-                : `Gesperrt: ${blockers.join(", ")}`;
-              hit.appendChild(conversionHint);
+              hit.classList.toggle("conversion-hover", conversionAllowed);
+              hit.classList.toggle("conversion-blocked", !conversionAllowed);
+              if (!conversionHint) {
+                conversionHint = document.createElement("div");
+                conversionHint.className = "conversion-preview";
+                conversionHint.setAttribute("role", "status");
+                conversionHint.setAttribute("aria-live", "polite");
+                const label = document.createElement("strong");
+                const detail = document.createElement("span");
+                conversionHint.append(label, detail);
+                document.body.appendChild(conversionHint);
+              }
+              const label = conversionAllowed
+                ? "↳ Als Unteraufgabe ablegen · Am Ende"
+                : "Umwandlung gesperrt";
+              const detail = conversionAllowed
+                ? `${source.title} → ${destination.title}`
+                : blockers.join(", ");
+              if (conversionHint.firstChild!.textContent !== label)
+                conversionHint.firstChild!.textContent = label;
+              if (conversionHint.lastChild!.textContent !== detail)
+                conversionHint.lastChild!.textContent = detail;
+              conversionHint.title = detail;
+              // Keep the active target grip/title clear at either viewport edge.
+              conversionHint.dataset.edge =
+                hit.getBoundingClientRect().top < 72 ? "bottom" : "top";
+              conversionHint.dataset.blocked = String(!conversionAllowed);
               ghost?.classList.add("conversion-ghost");
               if (hoverId !== destination.id) {
                 clearTimeout(hoverTimer);
@@ -192,6 +213,7 @@ export function SortHandle({
               }
               return;
             }
+            clearConversion();
             if (hoverId) {
               clearTimeout(hoverTimer);
               hoverId = null;
@@ -292,8 +314,11 @@ export function SortHandle({
             const viewport = node?.getBoundingClientRect(),
               top = viewport?.top || 0,
               bottom = viewport?.bottom || innerHeight;
-            const delta =
-              y < top + 64
+            // Dwell must not scroll its own 44px destination out from under
+            // the pointer when opening a target near the viewport edge.
+            const delta = conversionTarget
+              ? 0
+              : y < top + 64
                 ? -Math.min(18, (top + 64 - y) / 3)
                 : y > bottom - 64
                   ? Math.min(18, (y - bottom + 64) / 3)
@@ -391,6 +416,7 @@ export function SortHandle({
           cancelAnimationFrame(frame);
           clearTimeout(hoverTimer);
           expand(null);
+          clearConversion();
           clearTarget();
           ghost?.remove();
           row.classList.remove("order-dragging");

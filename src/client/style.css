@@ -1101,44 +1101,80 @@ dialog .completed-subtasks-toggle {
   pointer-events: none;
 }
 
-/* Separate inset conversion destinations from the horizontal sorting marker. */
+/* The drag-only target occupies the action grip, never task content or layout. */
 .conversion-zone {
-  visibility: hidden;
-  min-height: 80px;
+  display: none;
+  position: absolute;
+  z-index: 4;
+  top: 4px;
+  right: 0;
+  width: 44px;
+  height: 44px;
   box-sizing: border-box;
-  margin: 0 52px;
-  padding: 6px;
-  background: var(--bg);
-  border: 2px dashed var(--line);
+  border: 2px dashed var(--blue);
   border-radius: 6px;
-  font-size: 0.8rem;
-  overflow-wrap: anywhere;
+  color: var(--blue);
+  background: var(--bg);
+  font-size: 24px;
+  align-items: center;
+  justify-content: center;
 }
 .conversion-drag-active
   .task-item:not(.order-dragging):not(.order-ghost)
   > .conversion-zone {
-  visibility: visible;
+  display: flex;
 }
 .conversion-zone.conversion-hover {
-  border-color: var(--blue);
-  background: color-mix(in srgb, var(--blue) 12%, var(--bg));
+  border-style: solid;
   outline: 2px solid var(--blue);
+  outline-offset: -4px;
+  background: color-mix(in srgb, var(--blue) 18%, var(--bg));
 }
 .conversion-zone.conversion-blocked {
   border-style: solid;
+  color: var(--text);
   border-color: var(--text);
 }
+/* A compact fixed preview stays away from titles and expanded child rows. */
 .conversion-preview {
+  position: fixed;
+  z-index: 10002;
+  top: 4px;
+  right: 16px;
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
   pointer-events: none;
-  margin: 4px 0 0 16px;
-  padding: 8px;
-  border-left: 3px solid var(--blue);
+  padding: 6px 12px 6px 28px;
+  border: 2px solid var(--blue);
+  border-left-width: 6px;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 18px;
+  box-shadow: 0 2px 8px #0002;
 }
-.conversion-ghost {
-  transform: translateX(24px);
-  max-width: calc(100vw - 64px);
+.conversion-preview strong,
+.conversion-preview span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
+.conversion-preview[data-blocked="true"] {
+  border-color: var(--text);
+}
 .conversion-ghost {
   visibility: hidden;
+}
+
+.conversion-preview[data-edge="bottom"] {
+  top: auto;
+  bottom: 4px;
+}
+
+/* Expanding a hovered target must not trigger browser scroll anchoring. */
+html:has(body.conversion-drag-active),
+body.conversion-drag-active {
+  overflow-anchor: none;
 }
