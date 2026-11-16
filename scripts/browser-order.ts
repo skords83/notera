@@ -301,7 +301,9 @@ export async function orderChecks(
     box = (await scrollHandle.boundingBox())!;
   await page.mouse.move(box.x + 22, box.y + 22);
   await page.mouse.down();
-  await page.mouse.move(box.x + 22, 890, { steps: 8 });
+  // Stay in the sorting lane; the right grip lane now offers conversion.
+  const sortingX = (await item(b).boundingBox())!.x + 20;
+  await page.mouse.move(sortingX, 890, { steps: 8 });
   await expect
     .poll(() => page.evaluate(() => scrollY))
     .toBeGreaterThan(initialScroll + 100);

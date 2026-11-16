@@ -838,8 +838,12 @@ function App() {
                         <div
                           className="conversion-zone"
                           data-conversion-target={t.id}
+                          aria-label={`Als Unteraufgabe unter „${t.title}“ ablegen`}
                         >
-                          Als Unteraufgabe ablegen
+                          <span aria-hidden="true">↳</span>
+                          <span className="sr-only">
+                            Als Unteraufgabe ablegen
+                          </span>
                         </div>
                       )}
                       {(children.length > 0 || expanded) && (
